@@ -86,8 +86,8 @@ flowchart TB
   %% =========================
   C[(Content File)]
   W[(Watermarked Content)]
-  P[(Params Doc<br/>(machine-readable))]
-  M[(Model Metadata<br/>(optional))]
+  P[/Params Doc/]
+  M[/Model Metadata/]
 
   %% =========================
   %% On-chain anchors (logical)
