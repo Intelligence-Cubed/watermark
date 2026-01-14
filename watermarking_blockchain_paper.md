@@ -73,6 +73,7 @@ A watermark serves as a **content-level ID tag**, while blockchain serves as an 
 
 Figure 1 below illustrates the overall architecture of our proposed on-chain provenance system and the information flow between its components:
 
+```mermaid
 flowchart TB
   %% =========================
   %% Actors
@@ -115,9 +116,9 @@ flowchart TB
     Q[Query Generation Record\nby content_hash (or model_ref + content_hash)]
     R[Resolve registries:\n- MR -> attest_pubkey\n- SR -> params_uri + scheme_commitment]
     K[Recompute scheme_commitment\nfrom params doc]
-    D[Run detector\nwith params]
-    Z[Rebuild payload_bytes + digest\nthen verify signature]
-    O[Decision:\nVALID / NOT_FOUND / INVALID_SIG /\nSCHEME_MISMATCH / ...]
+  D[Run detector\nwith params]
+  Z[Rebuild payload_bytes + digest\nthen verify signature]
+  O[Decision:\nVALID / NOT_FOUND / INVALID_SIG /\nSCHEME_MISMATCH / ...]
   end
 
   %% Generation flow
@@ -137,6 +138,7 @@ flowchart TB
   MR --> Z
   K --> O
   D --> O
+
   Z --> O
 
   %% Optional metadata links
@@ -144,6 +146,7 @@ flowchart TB
   SR -. params_uri .-> P
   W -. "off-chain storage" .-> C
 
+```
 
 
 
