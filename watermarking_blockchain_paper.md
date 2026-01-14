@@ -75,50 +75,40 @@ Figure 1 below illustrates the overall architecture of our proposed on-chain pro
 
 ```mermaid
 flowchart TB
-  %% =========================
   %% Actors
-  %% =========================
   G[Generator / Inference Service]
   V[Verifier / Platform / Auditor]
 
-  %% =========================
   %% Off-chain artifacts
-  %% =========================
   C[(Content File)]
   W[(Watermarked Content)]
   P[/Params Doc/]
   M[/Model Metadata/]
 
-  %% =========================
-  %% On-chain anchors (logical)
-  %% =========================
+  %% On-chain anchors
   subgraph ON[On-chain State]
-    MR[Model Registry<br/>ModelAccount:<br/>owner, attest_pubkey,<br/>model_version, flags, metadata_uri]
-    SR[Scheme Registry<br/>WatermarkSchemeAccount:<br/>model_ref, scheme_id,<br/>params_uri, scheme_commitment,<br/>status_flags]
-    GR[Generation Record<br/>GenerationAccount:<br/>(model_ref, content_hash),<br/>parent_hash, timestamp, nonce,<br/>signature, payload_digest]
+    MR[Model Registry]
+    SR[Scheme Registry]
+    GR[Generation Record]
   end
 
-  %% =========================
   %% Generation side
-  %% =========================
   subgraph GEN[Generation Side]
-    E[Embed Watermark<br/>(using scheme params)]
+    E[Embed Watermark]
     H[Compute content_hash]
-    A[Build Attestation Payload<br/>(model_ref, scheme_ref,<br/>content_hash, parent_hash,<br/>timestamp, nonce, context_hash?)]
+    A[Build Attestation Payload]
     S[Sign digest with attest_privkey]
   end
 
-  %% =========================
   %% Verification side
-  %% =========================
   subgraph VER[Verification Side]
-    X[Extract watermark evidence<br/>(content-side signal)]
-    Q[Query Generation Record<br/>by content_hash (or model_ref + content_hash)]
-    R[Resolve registries:<br/>- MR -> attest_pubkey<br/>- SR -> params_uri + scheme_commitment]
-    K[Recompute scheme_commitment<br/>from params doc]
-    D[Run detector<br/>with params]
-    Z[Rebuild payload_bytes + digest<br/>then verify signature]
-    O[Decision:<br/>VALID / NOT_FOUND / INVALID_SIG /<br/>SCHEME_MISMATCH / ...]
+    X[Extract watermark evidence]
+    Q[Query Generation Record]
+    R[Resolve registries]
+    K[Recompute scheme_commitment]
+    D[Run detector with params]
+    Z[Rebuild and verify signature]
+    O[Decision: VALID / NOT_FOUND / INVALID]
   end
 
   %% Generation flow
@@ -138,7 +128,6 @@ flowchart TB
   MR --> Z
   K --> O
   D --> O
-
   Z --> O
 
   %% Optional metadata links
