@@ -368,7 +368,7 @@ encode_ref(ref) =
   ref_type(u8) ||
   ref_len(u16) ||
   ref_bytes(ref_len)
-
+```
 
 **Normative requirements:**
 
