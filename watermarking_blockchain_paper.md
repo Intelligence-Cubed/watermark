@@ -174,9 +174,196 @@ STEP 5: DERIVATIVE CREATION (Optional)
 
 **Figure 1: Architecture of the watermark-based on-chain content provenance system.** When a generative AI model produces content, it embeds a watermark containing a unique content identifier (ID). That ID, along with relevant metadata, is immediately recorded on the blockchain (provenance registration). If the content is later edited or used to create new content, the new AI (or user) preserves the original watermark or embeds a new one, and links the new content's record on-chain to its source. When the content is disseminated to end-users or platforms, anyone can extract the watermark ID and query the blockchain to retrieve the content's origin, its full creation history, and associated rights information. This enables verification of source and tracking of derivative lineage through immutable records. Smart contracts can then use the on-chain records to automate royalty settlements based on the provenance graph.
 
-### 4.1 Content Registration & Watermark Embedding
+### 4.1 Provenance Registration & Watermark Embedding
+This section presents a verifiable provenance registration and watermark-embedding workflow that links detectable watermark signals in content with auditable origin claims. We first introduce three foundational components: a Model Registry to establish model identity and attestation keys; a Watermark Scheme Registry to publish reproducible detection rules along with an integrity anchor; and Generation Records to persist each generation claim as an on-chain fact that is queryable and indexable. We then define a canonical attestation message format so that verifiers can reconstruct the same message and validate signature consistency. Finally, we provide an end-to-end workflow describing how the generation side produces, embeds, and registers content, and how the verification side queries records, validates parameters, and completes detection and signature verification.
 
-Whenever an AI model (or human creator) generates a new piece of content, the system first assigns it a globally unique identifier – this could be a UUID or, more securely, a cryptographic hash of the content file. Next, a watermark corresponding to this ID is embedded into the content using one of the techniques discussed (text watermark for text, image watermark for images, etc.). For example, if the model generates an image, the system might embed a certain pseudo-random pattern in its pixel domain representing the ID; if the output is text, it might apply a lexical watermarking with a key tied to the content ID; if audio, it adds an inaudible signal encoding the ID. Crucially, this watermark is invisible to users but will later allow anyone to recover the content ID from the content itself. After embedding, the system creates a **blockchain transaction** to record the content's provenance metadata. This on-chain **content record** would typically include: the content's unique ID (or a hash), the creator or generating model's identity, a timestamp of creation, possibly the prompt or source data ID used (if such information is to be shared), and any initial usage rights or license terms (e.g. "© Creator, non-commercial use only" or an NFT ownership token reference). The transaction is sent to the blockchain (which could be a public blockchain or consortium ledger) and once confirmed, it provides an immutable, timestamped proof of the content's origin. It's important to note that we do **not** need to store the actual content file on-chain – we only store a hash or ID and metadata. The content itself can be stored off-chain in a distributed storage network (like IPFS/Filecoin) or a cloud server, with the content hash ensuring integrity. By comparing a file's hash to the on-chain hash, one can verify the file hasn't been altered. Thus, at the moment of creation, every AI-generated content gets a kind of "birth certificate" on the blockchain and a hidden "ID tag" within the content via the watermark.
+#### 4.1.1 Model Registry (ModelAccount)
+
+The Model Registry turns “model identity” into an on-chain anchor that can be publicly verified: it declares the model’s `owner` (who is authorized to publish attestations on behalf of the model) and provides an `attest_pubkey` for generation proofs (the public key verifiers use to validate signatures). It also serves as a unified entry point for querying model metadata and versioning information.
+
+In other words, any verifiable claim of the form “this content comes from this model” must be traceable to a specific ModelAccount; verifiers must also be able to retrieve the correct verification key (`attest_pubkey`) from that ModelAccount.
+
+##### Data Model (recommended minimal field set)
+
+A ModelAccount SHOULD include at least the following fields (a chain-agnostic abstraction; implementations on different chains may map this to account/contract storage):
+
+- `owner`: the model owner address (for access control).
+- `attest_pubkey`: the model’s attestation public key, used exclusively for signing/verifying the “attestation payload.”
+- `metadata_uri`: a metadata endpoint for the model (e.g., model name, description, weight hash, training data disclosure, server-side attestation policy).
+- `model_version`: a model version identifier (recommended as a weight hash or a semantic-version hash).
+- `flags`: status flags (at minimum: updatable, frozen, disabled).
+
+##### Addressing / Identity
+
+To make model identity deterministically locatable, a derivable address is recommended (e.g., PDA / CREATE2). The Solana draft suggests representing ModelAccount as a PDA:
+
+`PDA("wm:model", owner_pubkey, model_id_or_version)`
+
+where `model_id_or_version` can be a weight hash, a semantic-version hash, or a project-defined `model_id` hash.
+
+**Normative requirement:**
+- Implementations compatible with this standard SHOULD provide stable and reproducible addressing for model identities to enable third-party indexing and verification (rather than relying solely on off-chain databases).
+
+##### Lifecycle and Operations (registration, update, freeze)
+
+**Registration (`register_model`)**  
+Create and register a model identity, binding `owner / attest_pubkey / metadata_uri / model_version / flags`, etc.
+
+- `attest_pubkey` MUST be a valid length (32 bytes).
+- `metadata_uri` SHOULD have an upper length bound to reduce DoS risk.
+
+**Update and Key Rotation (`update_model`, optional but strongly recommended)**  
+The model owner may update model information: rotate the attestation public key (key rotation), update metadata, and update flags (e.g., freezing).
+
+**Normative requirements:**
+- `owner` MUST be the only entity authorized to update `attest_pubkey / metadata_uri` (and only when `flags` allow updates).
+- Key rotation (rotating `attest_pubkey`) SHOULD be supported to handle realistic operational needs such as key compromise, service migration, and hardware rotation.
+- To ensure auditability, the effective activation time of a rotated `attest_pubkey` SHOULD be defined by on-chain state transitions (e.g., the confirmation time/height of the update transaction), rather than relying on off-chain announcements.
+
+**Freeze (immutability)**  
+When a model intends to enter an immutable state, the owner SHOULD set flags to frozen; after freezing, updates to critical fields MUST NOT be allowed (at minimum: `attest_pubkey / metadata_uri / model_version`). The update operation should explicitly reject attempts to modify critical fields of a frozen model (e.g., returning `ModelFrozen`).
+
+##### Why `attest_pubkey` must be bound to ModelAccount
+
+In the signature-based proof path, on-chain verification MUST use `ModelAccount.attest_pubkey` to verify the standardized payload. Therefore, ModelAccount is the only entry point answering: “who is authorized to make verifiable claims about generated content, and which public key should be used to verify them?”
+
+To avoid implementation divergence, the proof message should reference the ModelAccount address rather than substituting `attest_pubkey / owner / model_version` (otherwise cross-implementation verification can fail).
+
+##### Practical Notes (optional)
+
+- **Server-side key binding**: `attest_pubkey` SHOULD be bound to the model’s server-side signing system (e.g., the inference service signs at generation time), rather than allowing arbitrary client-side signing, to reduce “forged model claims.”
+- **Disabled status**: `flags` may include a “disabled” bit for unified ecosystem handling when a model is revoked or violates policies (preserving historical records while surfacing risk signals).
+
+**Summary:** This section covers model identity, owner, attestation key, versioning, key rotation, and freezing.  
+**Purpose:** Answer “who is authorized to make verifiable claims about generated content, and which public key should be used to verify signatures.”
+
+---
+
+#### 4.1.2 Watermark Scheme Registry (WatermarkSchemeRegistry / WatermarkSchemeAccount)
+
+##### Purpose
+
+In open ecosystems, merely stating “a model uses watermark scheme X” is insufficient for verifiable provenance. Verifiability depends on reproducibility: independent verifiers must be able to determine (i) the watermark scheme and version in use, (ii) the parameters and configuration required for detection, and (iii) that these parameters have not been swapped after the fact. To achieve this, we introduce a Watermark Scheme Registry: an on-chain registry entry that binds a model to its watermark scheme and provides a verifiable integrity anchor for detection rules.
+
+##### What a scheme entry represents
+
+A scheme entry represents a “reproducible detection definition.” It answers the verifier’s core question: “Which detector should I run, and with what parameters, to obtain results that are comparable to the generator’s claim?”
+
+Accordingly, each scheme entry SHOULD include at least the following fields:
+
+- `model_ref`: a unique reference to the model identity entry (see 4.1.1).
+- `scheme_id`: the watermark scheme identifier.
+- `params_uri`: a machine-readable parameter document endpoint, used to retrieve detection configuration and reproduction details.
+- `scheme_commitment`: a cryptographic commitment to the detection definition (fixed length, recommended 32 bytes), used to validate that the parameter document has not been tampered with or replaced.
+- `status_flags` (optional): e.g., active / deprecated / revoked, for operational status.
+- `created_at` (optional): time information for audit/indexing (or derivable from events/block height).
+
+##### `scheme_commitment`: what it commits to and how it is computed
+
+**Design principle:** `scheme_commitment` must commit to all information necessary for a verifier to reproduce detection. Recommended committed content includes at least:
+
+- `scheme_id` (scheme and version)
+- `detector_spec` (detector name, implementation version/identifier, output semantics)
+- `params` (thresholds, windows, error-correction configuration, and all detection-related parameters)
+- `key_commitment` (if keys/seeds are involved, do not reveal the key material directly, but commit to its version or hash)
+- `compatibility` (supported media types and preprocessing rules, e.g., image/video/audio/text)
+
+To prevent inconsistent commitments across implementations, the parameter document must undergo deterministic canonical serialization. A recommended framework is:
+
+- `params_bytes = canonical_serialize(params_document)`
+- `scheme_commitment = H(domain_tag || model_ref || scheme_id || params_bytes)`
+
+Where:
+- `canonical_serialize(·)` is a deterministic serialization procedure specified by the protocol (e.g., canonical JSON: sorted keys, UTF-8, fixed numeric formatting, no redundant whitespace).
+- `H(·)` is the protocol-selected fixed hash function.
+- `domain_tag` is a fixed domain-separation tag to prevent cross-purpose replay and commitment-domain confusion.
+
+The key point is not that the hash function “prefers” a particular chain; rather, any implementation (on any chain, off-chain service, or client) can compute the same commitment value offline.
+
+##### Binding between scheme and model, and authorization semantics
+
+To avoid naming collisions and impersonation, scheme entries must be explicitly bound to model identity entries:
+
+- The creator/updater of a scheme entry must have administrative permission over the corresponding `model_ref` (equivalent to model owner authority).
+- During verification, a verifier should check that the `scheme_ref` referenced by the generation claim (or the scheme entry) is consistent with the `model_ref` binding, i.e., `scheme.model_ref == generation.model_ref`.
+
+This binding lets verifiers complete consistency checks purely via references, without trusting off-chain narratives.
+
+##### Versioning strategy: upgrades without breaking historical verifiability
+
+Watermark systems may evolve due to detector upgrades, parameter tuning, or key rotation. To keep historical content verifiable, we recommend append-only versioning:
+
+- Once registered, `scheme_commitment` SHOULD be treated as immutable.
+- Upgrades SHOULD be expressed by creating a new scheme entry (e.g., adding a version suffix to `scheme_id`).
+- Old versions SHOULD remain queryable to support historical verification.
+- Deprecation/revocation SHOULD be expressed via `status_flags`, without deleting or mutating committed content.
+
+##### Verifier workflow (reproducible steps)
+
+Given a scheme entry referenced by a generation claim, the verifier SHOULD:
+
+1. Retrieve `params_uri` and `scheme_commitment` from the scheme entry.
+2. Download the parameter document from `params_uri`, run `canonical_serialize`, and recompute the commitment.
+3. If the recomputed commitment differs from `scheme_commitment`, conclude the definition is inconsistent (tampered/replaced) and reject.
+4. Otherwise, run watermark detection using the detector and parameters specified in the document, then proceed to the subsequent generation-claim verification steps.
+
+---
+
+#### 4.1.3 Attestation Message Format
+
+##### Purpose
+
+Watermark detection alone provides evidence that “some recognizable signal exists in the content.” To elevate that evidence into an auditable provenance claim, we require a verifiable attestation message: it packages the key facts of a generation event (content hash, model reference, scheme reference, time, and context) into a deterministic message and is signed using the model’s attestation key. Verifiers can reconstruct the same message and verify the signature, obtaining consistent results across platforms and implementations.
+
+The key is not “which chain performs verification,” but that all implementations produce the exact same message byte string for the same claim. This section therefore defines a canonical message schema and encoding rules to ensure interoperability.
+
+##### 1. What the message contains (Normative Schema)
+
+An attestation message (denoted `M`) SHOULD include at least:
+
+- `domain_tag`: fixed domain-separation label (prevent cross-protocol/cross-purpose replay)
+- `schema_version`: message schema version
+- `model_ref`: unique reference to the model identity entry (see 4.1.1)
+- `scheme_ref`: unique reference to the watermark scheme entry (see 4.1.2)
+- `content_hash`: hash of the generated content (see content hash section)
+- `parent_hash`: parent content hash (all zeros if none)
+- `timestamp`: attestation time (Unix seconds, or another deterministic time format)
+- `nonce`: random or deterministic nonce (prevent collisions/repeats in the same context)
+- `context_hash` (optional): commitment to additional context (e.g., prompt/seed/runtime parameters/license terms stored off-chain)
+
+**Design principles:**
+- `model_ref` and `scheme_ref` must appear as references to registry entries rather than being replaced by `owner`, `pubkey`, or string names, so verifiers can retrieve verification keys and detection parameters from registries and avoid implementation divergence.
+- `content_hash` anchors the content; `model_ref/scheme_ref` anchor identity and detection definition. Together they constitute a verifiable provenance assertion.
+
+##### 2. Canonical Encoding: converting fields into a unique byte string
+
+To ensure cross-chain and cross-language consistency, the attestation message must use deterministic encoding to produce `payload_bytes`. We recommend a simple “length prefix + fixed endianness” encoding to avoid dependence on chain-specific ABIs or serialization libraries.
+
+###### 2.1 Field type conventions
+
+- `bytes32`: fixed 32 bytes
+- `u8 / u16 / u64`: unsigned integers; endianness (little-endian or big-endian) must be fixed by the protocol (choose one globally)
+- `string`: UTF-8 bytes, with a `u16` or `u32` length prefix
+- `ref` (`model_ref/scheme_ref`): an abstract protocol type encoded as `ref_type + ref_bytes`
+  - `ref_type`: `u8`, indicates reference kind (e.g., 0=bytes32 id, 1=32-byte key, 2=hash-of-uri)
+  - `ref_bytes`: length prefix + bytes
+
+This approach avoids hardcoding references as chain-specific address types while remaining unambiguous and extensible.
+
+###### Recommended encoding (example)
+
+```text
+payload_bytes =
+  domain_tag_len(u8) || domain_tag(bytes) ||
+  schema_version(u8) ||
+  encode_ref(model_ref) ||
+  encode_ref(scheme_ref) ||
+  content_hash(32) ||
+  parent_hash(32) ||
+  timestamp(u64) ||
+  nonce(32) ||
+  context_hash_present(u8) || [context_hash(32)]?
+
 
 ### 4.2 Content Dissemination & Provenance Query
 
