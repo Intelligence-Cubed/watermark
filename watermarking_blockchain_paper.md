@@ -73,6 +73,80 @@ A watermark serves as a **content-level ID tag**, while blockchain serves as an 
 
 Figure 1 below illustrates the overall architecture of our proposed on-chain provenance system and the information flow between its components:
 
+flowchart TB
+  %% =========================
+  %% Actors
+  %% =========================
+  G[Generator / Inference Service]
+  V[Verifier / Platform / Auditor]
+
+  %% =========================
+  %% Off-chain artifacts
+  %% =========================
+  C[(Content File)]
+  W[(Watermarked Content)]
+  P[(Params Doc\n(machine-readable))]
+  M[(Model Metadata\n(optional))]
+
+  %% =========================
+  %% On-chain anchors (logical)
+  %% =========================
+  subgraph ON[On-chain State]
+    MR[Model Registry\nModelAccount:\nowner, attest_pubkey,\nmodel_version, flags, metadata_uri]
+    SR[Scheme Registry\nWatermarkSchemeAccount:\nmodel_ref, scheme_id,\nparams_uri, scheme_commitment,\nstatus_flags]
+    GR[Generation Record\nGenerationAccount:\n(model_ref, content_hash),\nparent_hash, timestamp, nonce,\nsignature, payload_digest]
+  end
+
+  %% =========================
+  %% Generation side
+  %% =========================
+  subgraph GEN[Generation Side]
+    E[Embed Watermark\n(using scheme params)]
+    H[Compute content_hash]
+    A[Build Attestation Payload\n(model_ref, scheme_ref,\ncontent_hash, parent_hash,\ntimestamp, nonce, context_hash?)]
+    S[Sign digest with attest_privkey]
+  end
+
+  %% =========================
+  %% Verification side
+  %% =========================
+  subgraph VER[Verification Side]
+    X[Extract watermark evidence\n(content-side signal)]
+    Q[Query Generation Record\nby content_hash (or model_ref + content_hash)]
+    R[Resolve registries:\n- MR -> attest_pubkey\n- SR -> params_uri + scheme_commitment]
+    K[Recompute scheme_commitment\nfrom params doc]
+    D[Run detector\nwith params]
+    Z[Rebuild payload_bytes + digest\nthen verify signature]
+    O[Decision:\nVALID / NOT_FOUND / INVALID_SIG /\nSCHEME_MISMATCH / ...]
+  end
+
+  %% Generation flow
+  G --> E --> W
+  W --> H --> A --> S --> GR
+  MR --> A
+  SR --> E
+  SR --> A
+
+  %% Verification flow
+  V --> X --> Q --> R
+  R --> SR
+  R --> MR
+  SR --> P --> K
+  P --> D
+  Q --> Z
+  MR --> Z
+  K --> O
+  D --> O
+  Z --> O
+
+  %% Optional metadata links
+  MR -. metadata_uri .-> M
+  SR -. params_uri .-> P
+  W -. "off-chain storage" .-> C
+
+
+
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    AI-GENERATED CONTENT PROVENANCE SYSTEM           │
