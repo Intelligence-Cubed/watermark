@@ -69,9 +69,9 @@ Beyond altering content signals, methods based on metadata exist. The **C2PA sta
 A watermark serves as a **content-level ID tag**, while blockchain serves as an **immutable registry**. This multi-pronged strategy provides defense in depth.
 
 
-## 4. On-Chain System Architecture
+## 4. On-Chain Provenance User Flow
 
-Figure 1 below illustrates the overall architecture of our proposed on-chain provenance system and the information flow between its components:
+Figure 1 illustrates the end-to-end user flow for registering model and watermark scheme entries, generating watermarked content, writing a Generation Record on-chain, and verifying provenance using both registry resolution and signature/detection checks.
 
 
 ```mermaid
