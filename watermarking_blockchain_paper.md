@@ -79,88 +79,88 @@ flowchart TB
   %% =========
   %% Entry
   %% =========
-  U[User / Builder / Model Owner] --> A[Open Platform]
-  A --> B{Wallet Connected?}
-  B -- No --> B1[Connect Wallet]
-  B1 --> B2[Authenticated]
-  B -- Yes --> B2[Authenticated]
+  U["User / Builder / Model Owner"] --> A["Open Platform"]
+  A --> B{"Wallet Connected?"}
+  B -- No --> B1["Connect Wallet"]
+  B1 --> B2["Authenticated"]
+  B -- Yes --> B2["Authenticated"]
 
   %% =========
   %% Choose Action
   %% =========
-  B2 --> C{Choose Action}
+  B2 --> C{"Choose Action"}
 
   %% =========
   %% Path 1: Register Model
   %% =========
-  C -->|Register Model| M0[Open Model Registry]
-  M0 --> M1[Enter model metadata_uri (optional)]
-  M1 --> M2[Set model_version]
-  M2 --> M3[Set attest_pubkey (attestation verification key)]
-  M3 --> M4[Submit register_model]
-  M4 --> M5{Tx Confirmed?}
-  M5 -- No --> M4E[Show error / retry]
-  M5 -- Yes --> M6[ModelAccount Created\n(model_ref available)]
+  C -->|"Register Model"| M0["Open Model Registry"]
+  M0 --> M1["Enter model metadata_uri (optional)"]
+  M1 --> M2["Set model_version"]
+  M2 --> M3["Set attest_pubkey (attestation verification key)"]
+  M3 --> M4["Submit register_model"]
+  M4 --> M5{"Tx Confirmed?"}
+  M5 -- No --> M4E["Show error / retry"]
+  M5 -- Yes --> M6["ModelAccount Created<br/>(model_ref available)"]
 
   %% =========
   %% Path 2: Register Scheme
   %% =========
-  C -->|Register Watermark Scheme| S0[Open Scheme Registry]
-  S0 --> S1[Select model_ref (ModelAccount)]
-  S1 --> S2[Choose scheme_id (and version)]
-  S2 --> S3[Upload / publish params doc\n-> params_uri]
-  S3 --> S4[Compute scheme_commitment\n(canonical serialize + hash)]
-  S4 --> S5[Submit register_scheme\n(model_ref, scheme_id, params_uri, scheme_commitment)]
-  S5 --> S6{Tx Confirmed?}
-  S6 -- No --> S5E[Show error / retry]
-  S6 -- Yes --> S7[SchemeAccount Created\n(scheme_ref available)]
+  C -->|"Register Watermark Scheme"| S0["Open Scheme Registry"]
+  S0 --> S1["Select model_ref (ModelAccount)"]
+  S1 --> S2["Choose scheme_id (and version)"]
+  S2 --> S3["Upload / publish params doc<br/>-> params_uri"]
+  S3 --> S4["Compute scheme_commitment<br/>(canonical serialize + hash)"]
+  S4 --> S5["Submit register_scheme<br/>(model_ref, scheme_id, params_uri, scheme_commitment)"]
+  S5 --> S6{"Tx Confirmed?"}
+  S6 -- No --> S5E["Show error / retry"]
+  S6 -- Yes --> S7["SchemeAccount Created<br/>(scheme_ref available)"]
 
   %% =========
   %% Gate: require Model + Scheme before generation
   %% =========
-  C -->|Generate Content| G0{Model registered\n& Scheme registered?}
-  G0 -- No --> G0E[Prompt: Create ModelAccount and SchemeAccount first]
-  G0 -- Yes --> G1[Select model_ref + scheme_ref]
-  G1 --> G2[Run generation with watermark embedding]
-  G2 --> G3[Compute content_hash]
-  G3 --> G4[Build attestation payload\n(model_ref, scheme_ref, content_hash,\nparent_hash?, timestamp, nonce, context_hash?)]
-  G4 --> G5[Sign digest with attest_privkey]
-  G5 --> G6[Submit Generation Record\n(record_key = (model_ref, content_hash))]
-  G6 --> G7{Tx Confirmed?}
-  G7 -- No --> G6E[Show error / retry]
-  G7 -- Yes --> G8[Save to My Assets:\ncontent + content_hash + tx link]
+  C -->|"Generate Content"| G0{"Model registered<br/>& Scheme registered?"}
+  G0 -- No --> G0E["Prompt: Create ModelAccount and SchemeAccount first"]
+  G0 -- Yes --> G1["Select model_ref + scheme_ref"]
+  G1 --> G2["Run generation with watermark embedding"]
+  G2 --> G3["Compute content_hash"]
+  G3 --> G4["Build attestation payload<br/>(model_ref, scheme_ref, content_hash,<br/>parent_hash?, timestamp, nonce, context_hash?)"]
+  G4 --> G5["Sign digest with attest_privkey"]
+  G5 --> G6["Submit Generation Record<br/>(record_key = (model_ref, content_hash))"]
+  G6 --> G7{"Tx Confirmed?"}
+  G7 -- No --> G6E["Show error / retry"]
+  G7 -- Yes --> G8["Save to My Assets:<br/>content + content_hash + tx link"]
 
   %% =========
   %% Verification Flow
   %% =========
-  C -->|Verify Content| V0[Upload / paste content to verify]
-  V0 --> V1[Extract watermark evidence]
-  V1 --> V2[Compute content_hash (or derive from watermark payload)]
-  V2 --> V3[Query Generation Record by content_hash]
-  V3 --> V4{Record Found?}
-  V4 -- No --> VNF[Return NOT_FOUND]
-  V4 -- Yes --> V5[Resolve registries:\n- ModelRegistry -> attest_pubkey\n- SchemeRegistry -> params_uri + scheme_commitment]
-  V5 --> V6[Fetch params doc from params_uri]
-  V6 --> V7[Recompute scheme_commitment\nand compare]
-  V7 --> V8{Commitment matches?}
-  V8 -- No --> VSM[Return INVALID (scheme mismatch/tampered)]
-  V8 -- Yes --> V9[Run detector with params]
-  V9 --> V10[Rebuild payload_bytes + digest\nand verify signature]
-  V10 --> V11{Signature valid?}
-  V11 -- No --> VIS[Return INVALID_SIG]
-  V11 -- Yes --> VOK[Return VALID + evidence\n(detector result + tx link)]
+  C -->|"Verify Content"| V0["Upload / paste content to verify"]
+  V0 --> V1["Extract watermark evidence"]
+  V1 --> V2["Compute content_hash (or derive from watermark payload)"]
+  V2 --> V3["Query Generation Record by content_hash"]
+  V3 --> V4{"Record Found?"}
+  V4 -- No --> VNF["Return NOT_FOUND"]
+  V4 -- Yes --> V5["Resolve registries:<br/>- ModelRegistry -> attest_pubkey<br/>- SchemeRegistry -> params_uri + scheme_commitment"]
+  V5 --> V6["Fetch params doc from params_uri"]
+  V6 --> V7["Recompute scheme_commitment<br/>and compare"]
+  V7 --> V8{"Commitment matches?"}
+  V8 -- No --> VSM["Return INVALID (scheme mismatch/tampered)"]
+  V8 -- Yes --> V9["Run detector with params"]
+  V9 --> V10["Rebuild payload_bytes + digest<br/>and verify signature"]
+  V10 --> V11{"Signature valid?"}
+  V11 -- No --> VIS["Return INVALID_SIG"]
+  V11 -- Yes --> VOK["Return VALID + evidence<br/>(detector result + tx link)"]
 
   %% =========
   %% Optional: Maintenance (Key Rotation / Freeze)
   %% =========
-  C -->|Manage Model| K0[Open ModelAccount Settings]
-  K0 --> K1{Action}
-  K1 -->|Rotate attest_pubkey| K2[Submit update_model(attest_pubkey)]
-  K1 -->|Freeze model| K3[Submit freeze_model / set flags=frozen]
-  K2 --> K4{Tx Confirmed?}
+  C -->|"Manage Model"| K0["Open ModelAccount Settings"]
+  K0 --> K1{"Action"}
+  K1 -->|"Rotate attest_pubkey"| K2["Submit update_model(attest_pubkey)"]
+  K1 -->|"Freeze model"| K3["Submit freeze_model / set flags=frozen"]
+  K2 --> K4{"Tx Confirmed?"}
   K3 --> K4
-  K4 -- No --> K5[Show error / retry]
-  K4 -- Yes --> K6[Updated state reflected in registry]
+  K4 -- No --> K5["Show error / retry"]
+  K4 -- Yes --> K6["Updated state reflected in registry"]
 ```
 
 
