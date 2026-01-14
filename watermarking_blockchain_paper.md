@@ -364,6 +364,11 @@ payload_bytes =
   nonce(32) ||
   context_hash_present(u8) || [context_hash(32)]?
 
+encode_ref(ref) =
+  ref_type(u8) ||
+  ref_len(u16) ||
+  ref_bytes(ref_len)
+
 
 ### 4.2 Content Dissemination & Provenance Query
 
