@@ -86,25 +86,25 @@ flowchart TB
   %% =========================
   C[(Content File)]
   W[(Watermarked Content)]
-  P[(Params Doc\n(machine-readable))]
-  M[(Model Metadata\n(optional))]
+  P[(Params Doc<br/>(machine-readable))]
+  M[(Model Metadata<br/>(optional))]
 
   %% =========================
   %% On-chain anchors (logical)
   %% =========================
   subgraph ON[On-chain State]
-    MR[Model Registry\nModelAccount:\nowner, attest_pubkey,\nmodel_version, flags, metadata_uri]
-    SR[Scheme Registry\nWatermarkSchemeAccount:\nmodel_ref, scheme_id,\nparams_uri, scheme_commitment,\nstatus_flags]
-    GR[Generation Record\nGenerationAccount:\n(model_ref, content_hash),\nparent_hash, timestamp, nonce,\nsignature, payload_digest]
+    MR[Model Registry<br/>ModelAccount:<br/>owner, attest_pubkey,<br/>model_version, flags, metadata_uri]
+    SR[Scheme Registry<br/>WatermarkSchemeAccount:<br/>model_ref, scheme_id,<br/>params_uri, scheme_commitment,<br/>status_flags]
+    GR[Generation Record<br/>GenerationAccount:<br/>(model_ref, content_hash),<br/>parent_hash, timestamp, nonce,<br/>signature, payload_digest]
   end
 
   %% =========================
   %% Generation side
   %% =========================
   subgraph GEN[Generation Side]
-    E[Embed Watermark\n(using scheme params)]
+    E[Embed Watermark<br/>(using scheme params)]
     H[Compute content_hash]
-    A[Build Attestation Payload\n(model_ref, scheme_ref,\ncontent_hash, parent_hash,\ntimestamp, nonce, context_hash?)]
+    A[Build Attestation Payload<br/>(model_ref, scheme_ref,<br/>content_hash, parent_hash,<br/>timestamp, nonce, context_hash?)]
     S[Sign digest with attest_privkey]
   end
 
@@ -112,13 +112,13 @@ flowchart TB
   %% Verification side
   %% =========================
   subgraph VER[Verification Side]
-    X[Extract watermark evidence\n(content-side signal)]
-    Q[Query Generation Record\nby content_hash (or model_ref + content_hash)]
-    R[Resolve registries:\n- MR -> attest_pubkey\n- SR -> params_uri + scheme_commitment]
-    K[Recompute scheme_commitment\nfrom params doc]
-  D[Run detector\nwith params]
-  Z[Rebuild payload_bytes + digest\nthen verify signature]
-  O[Decision:\nVALID / NOT_FOUND / INVALID_SIG /\nSCHEME_MISMATCH / ...]
+    X[Extract watermark evidence<br/>(content-side signal)]
+    Q[Query Generation Record<br/>by content_hash (or model_ref + content_hash)]
+    R[Resolve registries:<br/>- MR -> attest_pubkey<br/>- SR -> params_uri + scheme_commitment]
+    K[Recompute scheme_commitment<br/>from params doc]
+    D[Run detector<br/>with params]
+    Z[Rebuild payload_bytes + digest<br/>then verify signature]
+    O[Decision:<br/>VALID / NOT_FOUND / INVALID_SIG /<br/>SCHEME_MISMATCH / ...]
   end
 
   %% Generation flow
