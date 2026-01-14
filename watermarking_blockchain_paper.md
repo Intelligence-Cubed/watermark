@@ -370,6 +370,271 @@ encode_ref(ref) =
   ref_bytes(ref_len)
 
 
+**Normative requirements:**
+
+- `domain_tag` MUST be a protocol-defined constant (e.g., `"WM_PROV_V1"`) to achieve domain separation.
+- All integer fields MUST use the protocol-defined endianness (LE or BE); implementations must not choose independently.
+- Strings MUST use UTF-8 and MUST use length prefixes (no NUL termination or other non-deterministic forms).
+- `parent_hash` MUST be 32 bytes of zeros when there is no parent, to avoid “null/empty” divergence.
+- `context_hash_present` MUST explicitly indicate presence/absence of the optional field to avoid ambiguity between “missing” and “all zeros.”
+
+##### 3. Signature input and verification rules
+
+###### 3.1 Message-to-sign
+
+To prevent signatures over the same payload from being reused in different contexts, the signature input should bind to the digest of `payload_bytes`:
+
+- `digest = H(payload_bytes)`
+- `signature = Sign(attest_privkey, digest)`
+
+Here, `H(·)` is a protocol-fixed hash function (as in Section 4.1.2, the key is consistency and determinism), and `Sign` is a signature algorithm chosen by the implementation but must match the public key type declared in the Model Registry.
+
+###### 3.2 Source of verification key
+
+Verifiers MUST obtain the model’s attestation public key or signer identity (e.g., `attest_pubkey` or equivalent) from the Model Registry entry and use it to verify the attestation message signature.
+
+This rule provides the trust root: who can speak for the model is constrained by the Model Registry’s owner and attestation key, rather than by arbitrary submitter claims.
+
+##### 4. How verifiers reconstruct and validate (implementable flow)
+
+Given content and its on-chain/off-chain claim, verifiers:
+
+1. Compute/obtain `content_hash`.
+2. Obtain `model_ref` and `scheme_ref` from the claim.
+3. Read the corresponding registry entries (model entry for verification identity; scheme entry for detection parameters and commitment check).
+4. Rebuild `payload_bytes` per this section.
+5. Compute `digest = H(payload_bytes)`.
+6. Verify `signature` using the model’s attestation public key.
+7. If signature verification passes and `scheme_ref` is bound to the same `model_ref`, the provenance claim holds (combined with watermark detection results, this yields “content contains the scheme’s watermark + model-signed claim is consistent” as complementary evidence).
+
+##### 5. (Strongly recommended) test vector template (for interoperability)
+
+To avoid inconsistent interpretation of encoding details, we recommend publishing at least one public test vector per `schema_version`. Each vector includes:
+
+**Inputs (JSON)**
+
+- `domain_tag`
+- `schema_version`
+- `model_ref` (including `ref_type` and `ref_bytes` in hex)
+- `scheme_ref`
+- `content_hash`
+- `parent_hash`
+- `timestamp`
+- `nonce`
+- `context_hash_present` and `context_hash` (if any)
+
+**Expected outputs**
+
+- `payload_bytes_hex`
+- `digest_hex`
+- `signature_hex` (optionally per signature algorithm, or generated via a reference implementation in the repo)
+
+With test vectors, EVM teams, Solana teams, and third-party clients can align on identical `payload_bytes` and `digest` for the same inputs, ensuring consistent verification across ecosystems.
+
+---
+
+#### 4.1.4 Generation Record
+
+##### Purpose
+
+A Generation Record anchors a signed generation proof (attestation) as a queryable, indexable, auditable on-chain fact. Unlike the attestation message in Section 4.1.3, Generation Records emphasize persistence and retrieval: they allow verifiers to quickly locate provenance data by `content_hash` (and optionally `model_ref`), and reconstruct the attestation payload to verify signature consistency when needed.
+
+Design goals include:
+
+- **Queryable**: records can be located via content hash.
+- **Unambiguous**: the same content/model relationship cannot conflict or be overwritten.
+- **Traceable**: supports lineage through parent linkage.
+- **Operable**: includes clear error semantics and constraints to mitigate abuse.
+
+##### 5. Record Key and Uniqueness Domain
+
+A Generation Record must define a unique key (`record_key`) to determine whether “the same record already exists.” Recommended options:
+
+- **Recommended (most common):** `record_key = (model_ref, content_hash)`  
+  Rationale: the same content hash could (in rare cases) occur under different models; using `(model_ref, content_hash)` avoids cross-model conflicts and aligns with the semantics that the model is accountable for its outputs.
+- **Optional (stricter):** `record_key = (content_hash)`  
+  Rationale: global uniqueness, suitable if you require a single authoritative registration for any content, but this increases governance and dispute complexity.
+
+**Normative requirements:**
+
+- For any chosen uniqueness domain, the system MUST reject creation of duplicate Generation Records with the same `record_key` (prevent overwrites and replays).
+- If the protocol allows “updates,” it MUST use explicit append-only revisioning and keep old versions queryable; silent overwriting is not allowed.
+
+##### 2. Data model (recommended minimal field set)
+
+Each Generation Record SHOULD include at least:
+
+- `model_ref`: model identity reference (consistent with Section 4.1.3)
+- `scheme_ref`: watermark scheme reference (consistent with Section 4.1.3 and must bind to the same `model_ref`)
+- `content_hash`: content hash for the artifact
+- `parent_hash`: parent content hash (all zeros if none)
+- `timestamp`: attestation time
+- `nonce`: the nonce used in the attestation message
+- `signature`: signature over the attestation digest defined in Section 4.1.3
+- `payload_digest` (optional but recommended): `H(payload_bytes)` for fast alignment and indexing
+- `context_hash` (optional): off-chain context commitment (if enabled in Section 4.1.3)
+
+**Critical consistency constraint:**
+
+- Stored fields MUST be sufficient for verifiers to reconstruct the Section 4.1.3 `payload_bytes` (or at least its digest); otherwise, third parties cannot independently verify signatures.
+
+##### 3. `parent_hash`: semantics and constraints for lineage
+
+`parent_hash` expresses lineage relationships. To avoid ambiguity and implementation divergence:
+
+- If the content is not derived, `parent_hash` MUST be 32 bytes of zeros.
+- If the content has a parent, `parent_hash` MUST equal the parent’s `content_hash` (the parent’s content anchor).
+
+Optional strengthening (depending on product requirements):
+
+- The system MAY require the parent content to already have a Generation Record (i.e., parent must be resolvable to on-chain provenance), otherwise reject registration.
+- Alternatively, it may allow referencing an unregistered parent, but UI should mark it as “not fully traceable.”
+
+##### 4. Consistency check between scheme and model
+
+The referenced `scheme_ref` must be consistent with `model_ref`:
+
+- The scheme’s bound `model_ref` MUST equal the `model_ref` in the Generation Record.
+- If inconsistent, the system MUST reject the record (prevent “using someone else’s scheme to impersonate this model” or mixing parameters under the same scheme name).
+
+##### 5. How verifiers use Generation Records (minimal implementable path)
+
+Given content, a verifier typically:
+
+1. Compute `content_hash`.
+2. Query Generation Records by `content_hash` (or `(model_ref, content_hash)` if model is known).
+3. Extract `model_ref / scheme_ref / timestamp / nonce / signature`.
+4. Rebuild `payload_bytes` and `digest` per Section 4.1.3.
+5. Fetch verification identity from Model Registry and verify `signature`.
+6. Fetch parameters from Scheme Registry, validate `scheme_commitment`, then run watermark detection as content-side evidence.
+7. Output structured results (e.g., `VALID / NOT_FOUND / INVALID_SIG / SCHEME_MISMATCH / PARENT_INVALID`).
+
+##### 6. Error semantics (for implementability)
+
+To ensure consistent failure behavior, we recommend defining at least the following error categories (as error codes/status codes):
+
+- `RecordAlreadyExists`: uniqueness-domain collision (duplicate registration)
+- `InvalidSignature`: signature does not verify under the model’s attestation key
+- `UnknownModel`: `model_ref` cannot be resolved (model not registered/unavailable)
+- `UnknownScheme`: `scheme_ref` cannot be resolved (scheme not registered/unavailable)
+- `SchemeModelMismatch`: scheme-model binding mismatch
+- `InvalidParentHash`: invalid `parent_hash` (e.g., non-zero but malformed)
+- `ParentNotFound` (optional): parent record required but not found
+- `InvalidTimestamp` (optional): timestamp outside allowed window (if anti-replay window is enabled)
+- `UnsupportedSchemaVersion`: unsupported attestation schema version
+
+These are protocol semantics, not chain features; they can map to revert reasons, program error codes, or event statuses on any chain.
+
+##### 7. Practical notes (optional)
+
+- **Indexability**: provide indexable lookup for `content_hash` and `model_ref` (e.g., event logs or enumerable key spaces) to support third-party indexing services.
+- **Anti-abuse**: introduce fees/deposits/rate limits at registration to deter spam; this is a deployment policy and does not change core protocol semantics.
+- **Extensibility**: reserve extension fields or attach off-chain extension data via `context_hash` to avoid frequent upgrades of the core schema.
+
+---
+
+#### 4.1.5 End-to-End Workflow (End-to-End Flow)
+
+This section provides an implementable end-to-end workflow, showing how generators produce verifiable watermark provenance records and how verifiers reconstruct and validate the same claim. The workflow relies on three primitives: Model Registry (Section 4.1.1), Scheme Registry (Section 4.1.2), and Generation Records (Section 4.1.4), and uses the standardized attestation message format (Section 4.1.3) as the signing object.
+
+##### A. Preparation: register model and watermark scheme (one-time or low frequency)
+
+**Step A1: Model registration (Model Registry entry creation)**  
+The model owner creates a model identity entry and writes:
+
+- `owner`: model administrative entity
+- `attest_pubkey` (or equivalent signer identity): for attestation verification
+- `model_version`, `metadata_uri`, `flags`, etc.
+
+This step provides the trust root for all subsequent claims: who is authorized to sign on behalf of the model.
+
+**Step A2: Scheme registration (Scheme Registry entry creation)**  
+The model owner registers a watermark scheme entry for the model and writes:
+
+- `model_ref` (pointing to the model entry from Step A1)
+- `scheme_id`
+- `params_uri`
+- `scheme_commitment`
+
+`scheme_commitment` commits to the detection definition, ensuring verifiers can detect parameter tampering (see Section 4.1.2).
+
+##### B. Generation: generate content, embed watermark, create attestation, and register record (high frequency)
+
+**Step B1: Generate content and embed watermark**  
+The generator produces content using the model and scheme, embedding the watermark during generation. The embedding outcome should allow verifiers to extract evidence matching the scheme via the scheme-defined detector (e.g., scheme payload, confidence).
+
+**Step B2: Compute the content anchor `content_hash`**  
+Compute `content_hash = Hash(canonical_bytes(content))` (canonicalization rules are specified by the protocol or constrained by deployment policy). `content_hash` is the content-level anchor for on-chain lookup and integrity alignment.
+
+**Step B3: Determine lineage (optional)**  
+If derived content:
+
+- `parent_hash = parent_content_hash`
+
+Otherwise:
+
+- `parent_hash = 0x00…00` (32 bytes all zeros)
+
+**Step B4: Construct standardized attestation payload**  
+Construct fields per Section 4.1.3:
+
+- `model_ref`
+- `scheme_ref`
+- `content_hash`
+- `parent_hash`
+- `timestamp`
+- `nonce`
+- `context_hash` (optional)
+
+Encode to `payload_bytes` via canonical encoding, then compute `digest = H(payload_bytes)`.
+
+**Step B5: Sign the attestation**  
+Sign `digest` using the model’s attestation private key to obtain `signature`. This signature is the core evidence that “the model is accountable for this generation claim.”
+
+**Step B6: Write the Generation Record (Generation record submission)**  
+Submit the Generation Record on-chain (or to an on-chain component), containing at least:
+
+- `model_ref, scheme_ref, content_hash, parent_hash, timestamp, nonce, signature`
+
+And satisfy the uniqueness constraint (e.g., `(model_ref, content_hash)` must not repeat). The system should also validate scheme-model binding consistency and verify the signature under the model’s attestation public key (see Section 4.1.4).
+
+##### C. Verification: reconstruct detection definition, query record, rebuild message, and verify signature (third-party executable)
+
+**Step C1: Obtain content and compute `content_hash`**  
+Compute `content_hash` for lookup.
+
+**Step C2: Query Generation Records**  
+Query by `content_hash` (or `(model_ref, content_hash)` if the verifier already has a candidate model). If not found, return `NOT_FOUND` (or enter a dispute/backfill flow depending on system design).
+
+**Step C3: Resolve registries and validate the scheme definition**  
+Retrieve:
+
+- Model Registry entry: obtain model verification identity
+- Scheme Registry entry: obtain `params_uri` and `scheme_commitment`
+
+Download the parameter document, canonicalize and recompute the commitment, and compare to `scheme_commitment`. If inconsistent, reject.
+
+**Step C4: Run watermark detection (content-side evidence)**  
+Run the scheme-defined detector and parameters on content to obtain watermark evidence (e.g., confidence, payload). This provides content-side evidence that the watermark matches the scheme.
+
+**Step C5: Rebuild attestation message and verify signature (claim-side evidence)**  
+Rebuild `payload_bytes` and `digest` per Section 4.1.3 using fields from the Generation Record, then verify `signature` using the model verification identity. If verification fails, return `INVALID_SIG`.
+
+**Step C6: Output a unified verification conclusion**  
+A verifier may conclude the provenance claim holds when all of the following are satisfied:
+
+- Scheme definition integrity holds (commitment matches)
+- Watermark detection matches the scheme (content-side evidence)
+- Attestation signature verifies (claim-side evidence)
+- Scheme-model binding matches and parent rules are satisfied (structural consistency)
+
+Recommended structured output:
+
+- `status` (`VALID / NOT_FOUND / INVALID_SIG / SCHEME_MISMATCH / …`)
+- `model_ref, scheme_ref, content_hash, parent_hash, timestamp`
+- `evidence` (detection confidence, commitment check result, signature verification result, etc.)
+
+
 ### 4.2 Content Dissemination & Provenance Query
 
 When watermarked AI content circulates on the internet or is shared to a platform, any recipient can verify its provenance by extracting the watermark. For instance, suppose a user encounters an image or audio clip and wonders if it's AI-generated and from which model. They can use a detection tool (this could be built into social media platforms, browser extensions, or standalone apps) to scan the content for a watermark. If a watermark ID is found, the tool then queries the blockchain (either by searching for that content ID or calling a smart contract function) to retrieve the corresponding provenance record. The blockchain lookup will return the stored metadata: e.g. "Content ID X was generated by Model Y (version Z) at time T; Creator=Alice's AI Studio; Original hash H; License=CC-BY-NC," etc. It may also indicate whether the content was derived from prior content (more on that shortly). This allows the viewer to confirm **who or what model produced the content and when**. If the chain record shows it's AI-generated by a particular model, the user or platform can then, for example, display an "AI-generated" label or decide to treat it accordingly. This automated provenance check is valuable for **content authenticity** – e.g., a news outlet receiving a photo can verify if it comes from a known journalist's camera (with a registered record and no AI watermark) or if it was AI-generated by some model, helping to prevent deceptive deepfakes in journalism. For regulators or copyright enforcers, the system provides a transparent way to trace content: if infringing AI content appears, one can find out which model made it (and potentially which data it used, if those details are recorded or can be further queried). Importantly, because the watermark is embedded in the content itself, the provenance stays attached to the content wherever it goes. Anyone, even years later, can perform the check as long as the blockchain records persist.
