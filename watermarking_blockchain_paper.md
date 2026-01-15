@@ -2,24 +2,23 @@
 
 ## Abstract
 
-As generative AI becomes widely used to produce text, images, audio, and video, content that is redistributed across platforms and modified through downstream edits often becomes difficult to independently verify for origin and attribution, amplifying risks such as deepfakes, impersonated works, and copyright disputes. Purely off-chain labels or database records lack a shared, auditable trust foundation; placing content or full generation traces on-chain is infeasible due to cost and privacy constraints; and relying solely on content hashes breaks under common distribution operations such as transcoding, cropping, and re-encoding. To address these challenges, we propose a multi-chain framework for **verifiable provenance and recursive royalties** that binds detectable watermark evidence in the artifact to auditable on-chain provenance claims, while using registries and integrity commitments to make detector definitions and rights terms reproducible and tamper-resistant.
+As generative AI becomes widely used to produce text, images, audio, and video, content that is redistributed across platforms and modified through downstream edits often becomes difficult to independently verify for origin and attribution, amplifying risks such as deepfakes, impersonated works, and copyright disputes. Purely off-chain labels or database records lack a shared, auditable trust foundation; placing content or full generation traces on-chain is infeasible due to cost and privacy constraints; and relying solely on content hashes breaks under common distribution operations such as transcoding, cropping, and re-encoding. To address these challenges, we propose a multi-chain framework for **verifiable provenance and recursive royalties** that binds detectable watermark evidence in the artifact to auditable on-chain provenance claims, while using registries and integrity commitments to make detector definitions and rights terms reproducible and tamper-resistant. [1,2,3,6]
 
-The framework is built around three on-chain primitives. A **Model Registry** establishes model identity and an attestation public key. A **Watermark Scheme Registry** publishes a reproducible detector definition and parameters via `params_uri` and anchors them via `scheme_commitment`. A **Generation Record** persists a single generation claim as a queryable, indexable on-chain fact and captures derivation via `parent_hash`. On top of these primitives, we define a canonical **attestation payload** and a verifier loop: verifiers resolve registry references, validate commitments, reconstruct canonical messages, and verify signatures, then combine these results with watermark detection outcomes to return structured status codes and an auditable evidence bundle, enabling consistent verification across independent implementations. Building on the same verifiable anchors, we further specify how rights and royalty policies attach with integrity commitments, and provide rules for recursive royalty computation and a settlement gate (bounded depth, caps, and missing-parent handling) to support automated payouts along multi-hop derivative lineages. We also discuss practical extensions such as vault aggregation, streaming settlement, and tokenized revenue shares, as well as deployment considerations including cross-chain interoperability, key rotation and revocation governance, watermark robustness, and abuse resistance.
+The framework is built around three on-chain primitives. A **Model Registry** establishes model identity and an attestation public key. A **Watermark Scheme Registry** publishes a reproducible detector definition and parameters via `params_uri` and anchors them via `scheme_commitment`. A **Generation Record** persists a single generation claim as a queryable, indexable on-chain fact and captures derivation via `parent_hash`. On top of these primitives, we define a canonical **attestation payload** and a verifier loop: verifiers resolve registry references, validate commitments, reconstruct canonical messages, and verify signatures, then combine these results with watermark detection outcomes to return structured status codes and an auditable evidence bundle, enabling consistent verification across independent implementations. Building on the same verifiable anchors, we further specify how rights and royalty policies attach with integrity commitments, and provide rules for recursive royalty computation and a settlement gate (bounded depth, caps, and missing-parent handling) to support automated payouts along multi-hop derivative lineages. We also discuss practical extensions such as vault aggregation, streaming settlement, and tokenized revenue shares, as well as deployment considerations including cross-chain interoperability, key rotation and revocation governance, watermark robustness, and abuse resistance. [6,8,13,21,28]
 
-Overall, the proposed framework combines watermark-based content-side evidence with blockchain-based auditability into an implementable protocol foundation for verifiable provenance and auditable revenue distribution for AI-generated content.
-
+Overall, the proposed framework combines watermark-based content-side evidence with blockchain-based auditability into an implementable protocol foundation for verifiable provenance and auditable revenue distribution for AI-generated content. [28]
 
 # 1. Introduction
 
-Generative AI has rapidly become a primary engine for content creation: images, text, audio, and video can now be produced, edited, and redistributed at near-zero marginal cost. This shift substantially improves creative productivity, but it also exposes two structural challenges that are becoming increasingly difficult to ignore. First, as content propagates across platforms and undergoes post-processing, **its origin and attribution become hard to independently verify**, amplifying the risks of misinformation, deepfakes, and impersonated works. Second, existing copyright and revenue distribution mechanisms struggle to track the full lifecycle of “model generation → derivative creation → multi-hop distribution” in an auditable manner, resulting in opaque and inconsistent settlement outcomes for creators, model providers, and upstream rights holders.
+Generative AI has rapidly become a primary engine for content creation: images, text, audio, and video can now be produced, edited, and redistributed at near-zero marginal cost. This shift substantially improves creative productivity, but it also exposes two structural challenges that are becoming increasingly difficult to ignore. First, as content propagates across platforms and undergoes post-processing, **its origin and attribution become hard to independently verify**, amplifying the risks of misinformation, deepfakes, and impersonated works. Second, existing copyright and revenue distribution mechanisms struggle to track the full lifecycle of “model generation → derivative creation → multi-hop distribution” in an auditable manner, resulting in opaque and inconsistent settlement outcomes for creators, model providers, and upstream rights holders. [1,2,3]
 
-In practice, relying on platform-controlled labels or off-chain databases is insufficient for trustworthy provenance: different platforms lack a shared trust anchor, and off-chain records can be altered, lost, or rendered inaccessible through migrations. At the same time, placing raw content or full generation traces on-chain is infeasible due to cost and privacy constraints. A pure “content hash” fingerprint is also fragile: common distribution operations—transcoding, cropping, re-encoding—change bytes and invalidate naive hash-based matching. Addressing these tensions requires a mechanism with four properties:  
+In practice, relying on platform-controlled labels or off-chain databases is insufficient for trustworthy provenance: different platforms lack a shared trust anchor, and off-chain records can be altered, lost, or rendered inaccessible through migrations. At the same time, placing raw content or full generation traces on-chain is infeasible due to cost and privacy constraints. In practice, the content bytes can be stored in content-addressed or economically persistent storage networks (e.g., IPFS, Filecoin, or Arweave), while the chain stores only hashes/commitments and minimal auditable facts. [22,23,24] A pure “content hash” fingerprint is also fragile: common distribution operations—transcoding, cropping, re-encoding—change bytes and invalidate naive hash-based matching. Addressing these tensions requires a mechanism with four properties:  
 (1) **content-side detectability**, where the artifact itself carries extractable watermark evidence that survives realistic distribution;  
 (2) **claim-side authenticity**, where an authorized model or rights holder can produce verifiable signatures over provenance claims, preventing forged attribution;  
 (3) **definition-side reproducibility**, where the detector definition and parameters are immutably anchored so third parties can reproduce verification and avoid “post hoc rule substitution” attacks; and  
-(4) **on-chain auditability with off-chain scalability**, where the blockchain stores a minimal set of immutable facts while compute-heavy tasks (e.g., watermark detection) remain off-chain.
+(4) **on-chain auditability with off-chain scalability**, where the blockchain stores a minimal set of immutable facts while compute-heavy tasks (e.g., watermark detection) remain off-chain. [6,7,8,22,34]
 
-This paper proposes a multi-chain–deployable framework for **verifiable provenance and recursive royalties** that binds **content-side watermark evidence** to **auditable on-chain claims**. The framework is built around three on-chain primitives and a verifier loop: a Model Registry establishes model identity and attestation keys; a Watermark Scheme Registry publishes and anchors reproducible detector definitions; a Generation Record persists a single generation claim as a queryable, indexable on-chain fact. Verifiers resolve registries, validate commitments, and verify signatures over a standardized attestation payload, then combine these results with content-side detection evidence to produce structured outcomes and an auditable evidence set. Building on this provenance foundation, we further specify a rights policy attachment model and a recursive royalty settlement mechanism that allocates revenue along an auditable lineage graph, and supports practical extensions such as vault aggregation, streaming settlement, and tokenized revenue shares.
+This paper proposes a multi-chain–deployable framework for **verifiable provenance and recursive royalties** that binds **content-side watermark evidence** to **auditable on-chain claims**. The framework is built around three on-chain primitives and a verifier loop: a Model Registry establishes model identity and attestation keys; a Watermark Scheme Registry publishes and anchors reproducible detector definitions; a Generation Record persists a single generation claim as a queryable, indexable on-chain fact. Verifiers resolve registries, validate commitments, and verify signatures over a standardized attestation payload, then combine these results with content-side detection evidence to produce structured outcomes and an auditable evidence set. Building on this provenance foundation, we further specify a rights policy attachment model and a recursive royalty settlement mechanism that allocates revenue along an auditable lineage graph, and supports practical extensions such as vault aggregation, streaming settlement, and tokenized revenue shares. [27,28,29] [4,5]
 
 **Contributions.** The main contributions of this paper are:
 
@@ -34,11 +33,11 @@ This paper proposes a multi-chain–deployable framework for **verifiable proven
 
 ## 2. Technical Background
 
-This section reviews the key background required by our framework. On one hand, we summarize multimodal watermarking and its use in AI-generated content. On the other hand, we introduce the cryptographic and system primitives needed to make provenance claims *reproducible* and *auditable* (commitments, canonical serialization, signatures with domain separation, and on-chain registry patterns). Together, these foundations explain why “the mere presence of a watermark” is insufficient for cross-platform attribution, and why registries, commitments, and canonical message formats are necessary to avoid implementation divergence and post hoc tampering.
+This section reviews the key background required by our framework. On one hand, we summarize multimodal watermarking and its use in AI-generated content. On the other hand, we introduce the cryptographic and system primitives needed to make provenance claims *reproducible* and *auditable* (commitments, canonical serialization, signatures with domain separation, and on-chain registry patterns). Together, these foundations explain why “the mere presence of a watermark” is insufficient for cross-platform attribution, and why registries, commitments, and canonical message formats are necessary to avoid implementation divergence and post hoc tampering. [1,35]
 
 ### 2.1 Digital Watermarking: Concept and Core Properties
 
-Digital watermarking embeds a hidden signal into content while preserving usability, such that the signal can later be recovered (or statistically detected) even after distribution and moderate editing. Unlike explicit labels, a watermark is an implicit marker within the artifact itself, enabling *content-side evidence* that can survive platform boundaries and typical media pipelines.
+Digital watermarking embeds a hidden signal into content while preserving usability, such that the signal can later be recovered (or statistically detected) even after distribution and moderate editing. Unlike explicit labels, a watermark is an implicit marker within the artifact itself, enabling *content-side evidence* that can survive platform boundaries and typical media pipelines. [1,34,35]
 
 A watermark scheme intended for provenance typically targets the following properties (with modality-specific trade-offs):
 
@@ -52,7 +51,7 @@ Crucially, watermarking provides *content-side evidence*—it answers whether an
 
 ### 2.2 Watermarks, Fingerprints, and Content Hashes
 
-Watermarks, fingerprints, and hashes all support content identification, but they differ in objectives and threat models:
+Watermarks, fingerprints, and hashes all support content identification, but they differ in objectives and threat models: [14,22,35]
 
 - **Watermarks** commonly embed a shared or linkable identifier across artifacts from the same source, enabling attribution signals and authenticity cues.
 - **Fingerprinting** often targets per-copy uniqueness: different distributed copies of the same content embed distinct identifiers to trace leakage sources or distribution paths. The emphasis is on distinguishing copies rather than proving “belongs to a source.”
@@ -62,24 +61,24 @@ A deployable provenance system therefore benefits from combining robust watermar
 
 ### 2.3 Multimodal Watermarking Overview (Text, Images, Audio, Video)
 
-Different modalities impose different constraints and attack surfaces. In our framework, modality diversity is abstracted as a *scheme* plus a *parameterized detector definition* published via a registry.
+Different modalities impose different constraints and attack surfaces. In our framework, modality diversity is abstracted as a *scheme* plus a *parameterized detector definition* published via a registry. [38,42,44,45,49]
 
 - **Text watermarking.** Common approaches bias token sampling (e.g., vocabulary partitioning, distribution shaping) to induce statistically testable patterns. Detectors evaluate sequences under secret parameters and output confidence. Text watermarking often depends on generation-process consistency and is sensitive to rewriting or translation, making detector thresholds, windows, ECC strategies, and corpus assumptions particularly important.
 - **Image watermarking.** Signals may be embedded in pixel space, frequency space, or model latent space. For generative models (e.g., diffusion), watermark structure can also be introduced during generation or in latent representations. Parameters typically include embedding strength, band selection, synchronization/alignment, error-correcting codes, and detection thresholds, which define robustness to compression, resizing, and cropping.
 - **Audio watermarking.** Techniques include spread-spectrum, echo hiding, phase modulation, and subband embedding, balancing imperceptibility with robustness to compression and resampling. Detector parameters are often coupled to sample rate, windowing, synchronization, and noise assumptions.
-- **Video watermarking.** Beyond per-frame embedding, temporal consistency and resistance to time-domain attacks (frame dropping, speed changes, interpolation, transcoding) become central. Parameters commonly span both spatial and temporal synchronization plus error correction.
+- **Video watermarking.** Beyond per-frame embedding, temporal consistency and resistance to time-domain attacks (frame dropping, speed changes, interpolation, transcoding) become central. Parameters commonly span both spatial and temporal synchronization plus error correction. [37]
 
 In our architecture, these modality differences do not change the verifiable backbone, but they determine the detector definition and parameters published in the Scheme Registry so that verifiers can reproduce detection and produce auditable evidence.
 
 ### 2.4 Recent Progress and Practical Attack Surfaces
 
-Watermarking has expanded from purely post-processing embedding to *generation-time embedding*, especially for large language models and diffusion-based generators. At the same time, practical adversarial pressure has increased: automated watermark removal, rewriting and style transfer, adversarial desynchronization, and mixed/composited content that introduces detection ambiguity.
+Watermarking has expanded from purely post-processing embedding to *generation-time embedding*, especially for large language models and diffusion-based generators. At the same time, practical adversarial pressure has increased: automated watermark removal, rewriting and style transfer, adversarial desynchronization, and mixed/composited content that introduces detection ambiguity. [1,41,48]
 
 These realities motivate explicit robustness assumptions and failure semantics. Under strong transformations or adversarial edits, “detection failure” does not necessarily imply “forgery”; it may warrant an “inconclusive” or “suspected tampering” outcome. Our verifier loop therefore returns structured status codes and an evidence bundle rather than a single boolean.
 
 ### 2.5 Cryptographic Commitments and Canonicalization
 
-When verification depends on off-chain documents (e.g., detector parameters, thresholds, ECC configuration, license terms), a `params_uri` or `license_uri` alone is insufficient for auditability because the referenced content can be swapped or drift over time. We therefore introduce **commitments** as immutable integrity anchors:
+When verification depends on off-chain documents (e.g., detector parameters, thresholds, ECC configuration, license terms), a `params_uri` or `license_uri` alone is insufficient for auditability because the referenced content can be swapped or drift over time. We therefore introduce **commitments** as immutable integrity anchors: [11,12,13,14]
 
 - **`scheme_commitment`** commits to the watermark scheme’s detector definition and parameter document, enabling verifiers to fetch the document, canonicalize it, recompute the commitment, and check consistency.
 - **`policy_commitment`** (for licensing/royalties) commits to rights terms and structured settlement rules, preventing “post hoc substitution” at settlement time.
@@ -90,7 +89,7 @@ Commitments and signature inputs SHOULD also apply **domain separation** (e.g., 
 
 ### 2.6 Digital Signatures, Domain Separation, and Replay Resistance
 
-Watermark detection alone only establishes “content-side evidence” and cannot authenticate “which model or rights holder produced this claim.” We therefore use **claim-side signatures**: an authorized entity signs a standardized attestation payload under a dedicated attestation public key, enabling any verifier to independently validate the claim.
+Watermark detection alone only establishes “content-side evidence” and cannot authenticate “which model or rights holder produced this claim.” We therefore use **claim-side signatures**: an authorized entity signs a standardized attestation payload under a dedicated attestation public key, enabling any verifier to independently validate the claim. [15,16,19]
 
 To avoid cross-implementation divergence, the signature input MUST be **canonical `payload_bytes`**, and SHOULD include:
 
@@ -106,7 +105,7 @@ Replay resistance is typically achieved by combining:
 
 ### 2.7 On-Chain Registries and the Minimal Pattern for Verifiable Claims
 
-Independent, cross-platform verification requires elevating “who may claim” and “which detector definition applies” from private databases to publicly auditable on-chain anchors. We adopt a registry-based pattern:
+Independent, cross-platform verification requires elevating “who may claim” and “which detector definition applies” from private databases to publicly auditable on-chain anchors. We adopt a registry-based pattern: [6,8,9,10,27,28] [30,31,32,33]
 
 - **Model Registry** establishes model identity and the authorized attestation public key `attest_pubkey`, which verifiers use to validate signed provenance claims.
 - **Scheme Registry** publishes `params_uri` and anchors the detector definition via `scheme_commitment`, and expresses a binding relationship between the scheme and the model.
@@ -116,7 +115,7 @@ The key principle is to keep on-chain storage to a minimal set of auditable fact
 
 ## 3. Multimodal Watermarking Techniques and Detectability Properties
 
-This section surveys watermarking techniques across text, images, audio, and video, with emphasis on the engineering properties that matter most in *verifiable provenance*: **reproducible detection** and **auditable parameterization**. Rather than exhaustively cataloging algorithms, we adopt an abstraction that is central to system design: any watermark suitable for provenance SHOULD be treated as a publishable, versioned, and independently reproducible **watermark scheme**. Its detector definition and parameters must be made machine-readable and anchored via an integrity commitment, so verification does not depend on private implementations or mutable, off-chain “rules,” and so ecosystems avoid divergence and post hoc parameter substitution.
+This section surveys watermarking techniques across text, images, audio, and video, with emphasis on the engineering properties that matter most in *verifiable provenance*: **reproducible detection** and **auditable parameterization**. Rather than exhaustively cataloging algorithms, we adopt an abstraction that is central to system design: any watermark suitable for provenance SHOULD be treated as a publishable, versioned, and independently reproducible **watermark scheme**. Its detector definition and parameters must be made machine-readable and anchored via an integrity commitment, so verification does not depend on private implementations or mutable, off-chain “rules,” and so ecosystems avoid divergence and post hoc parameter substitution. [1,34,35]
 
 ### 3.1 Scheme Abstraction: Embedder, Detector Specification, and Parameters
 
@@ -133,7 +132,7 @@ This abstraction “compresses” algorithmic diversity into an auditable scheme
 
 ### 3.2 Text Watermarking: Statistical Bias and Verifiable Outputs
 
-Text watermarking commonly operates during generation by introducing statistically testable bias into token sampling distributions, so that the output sequence exhibits stable statistical signatures under a given key/parameterization. A detector applies tokenization/normalization, evaluates the sequence via fixed windows or global tests, and outputs a confidence score.
+Text watermarking commonly operates during generation by introducing statistically testable bias into token sampling distributions, so that the output sequence exhibits stable statistical signatures under a given key/parameterization. A detector applies tokenization/normalization, evaluates the sequence via fixed windows or global tests, and outputs a confidence score. [38,39,40,42,43]
 
 **Typical parameter set (illustrative).** Text scheme documents often include:
 
@@ -148,7 +147,7 @@ Text watermarking commonly operates during generation by introducing statistical
 
 ### 3.3 Image Watermarking: Spatial, Frequency, and Latent Embedding
 
-Image watermarks may be embedded in pixel space, frequency space (e.g., DCT/DWT), or the latent representations of generative models. For generative pipelines, watermark structure may also be injected during generation, potentially improving stability or increasing resistance to independent removal.
+Image watermarks may be embedded in pixel space, frequency space (e.g., DCT/DWT), or the latent representations of generative models. For generative pipelines, watermark structure may also be injected during generation, potentially improving stability or increasing resistance to independent removal. [44,45,46,47,50]
 
 **Typical parameter set (illustrative).** Image scheme documents often include:
 
@@ -162,7 +161,7 @@ Image watermarks may be embedded in pixel space, frequency space (e.g., DCT/DWT)
 
 ### 3.4 Audio Watermarking: Imperceptible Embedding and Resampling Robustness
 
-Audio watermarking emphasizes imperceptibility and robustness to compression, resampling, and additive noise. Representative approaches include spread-spectrum, echo hiding, phase modulation, and subband embedding. Reliable verification typically requires strict preprocessing (sample-rate normalization, windowing, filtering) to stabilize detection.
+Audio watermarking emphasizes imperceptibility and robustness to compression, resampling, and additive noise. Representative approaches include spread-spectrum, echo hiding, phase modulation, and subband embedding. Reliable verification typically requires strict preprocessing (sample-rate normalization, windowing, filtering) to stabilize detection. [35,36]
 
 **Typical parameter set (illustrative).** Audio scheme documents often include:
 
@@ -176,7 +175,7 @@ Audio watermarking emphasizes imperceptibility and robustness to compression, re
 
 ### 3.5 Video Watermarking: Spatiotemporal Consistency and Time-Domain Attacks
 
-Video watermarking must address not only spatial embedding per frame, but also temporal robustness. Frame dropping, insertion, speed changes, transcoding, and GOP reconstruction can disrupt synchronization. Robust schemes typically combine spatial signals with temporal redundancy plus stronger synchronization and error correction.
+Video watermarking must address not only spatial embedding per frame, but also temporal robustness. Frame dropping, insertion, speed changes, transcoding, and GOP reconstruction can disrupt synchronization. Robust schemes typically combine spatial signals with temporal redundancy plus stronger synchronization and error correction. [49]
 
 **Typical parameter set (illustrative).** Video scheme documents often include:
 
@@ -190,7 +189,7 @@ Video watermarking must address not only spatial embedding per frame, but also t
 
 ### 3.6 From Watermarking to Verifiable Provenance: Anchoring and Versioning Detector Definitions
 
-In provenance systems, an often-overlooked but critical question is: *which* detection rule set is the verifier supposed to use? If parameter documents are mutable, an adversary can swap thresholds, disable checks, or alter preprocessing to produce contradictory conclusions across implementations. To prevent this, the detector definition and parameter document MUST be anchored via an on-chain commitment and SHOULD be versioned rather than overwritten:
+In provenance systems, an often-overlooked but critical question is: *which* detection rule set is the verifier supposed to use? If parameter documents are mutable, an adversary can swap thresholds, disable checks, or alter preprocessing to produce contradictory conclusions across implementations. To prevent this, the detector definition and parameter document MUST be anchored via an on-chain commitment and SHOULD be versioned rather than overwritten: [1,6,13]
 
 - Scheme upgrades SHOULD create new scheme versions while keeping older versions queryable, ensuring historical verification remains reproducible.
 - Verification results MUST reference a specific `scheme_ref`, not an informal algorithm label.
@@ -200,6 +199,8 @@ Under this abstraction, watermark algorithms may be diverse, but detection defin
 
 
 ## 4. On-Chain Provenance User Flow
+
+**Conventions.** The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in RFC 2119 and RFC 8174. [11,12]
 
 Figure 1 illustrates the end-to-end user flow for registering model and watermark scheme entries, generating watermarked content, writing a Generation Record on-chain, and verifying provenance using both registry resolution and signature/detection checks.
 
@@ -418,7 +419,7 @@ A ModelAccount SHOULD include at least the following fields (a chain-agnostic ab
 
 ##### Addressing / Identity
 
-To make model identity deterministically locatable, a derivable address is recommended (e.g., PDA / CREATE2). The Solana draft suggests representing ModelAccount as a PDA:
+To make model identity deterministically locatable, a derivable address is recommended (e.g., PDA / CREATE2). The Solana draft suggests representing ModelAccount as a PDA: [17,18]
 
 `PDA("wm:model", owner_pubkey, model_id_or_version)`
 
@@ -494,12 +495,12 @@ Accordingly, each scheme entry SHOULD include at least the following fields:
 To prevent inconsistent commitments across implementations, the parameter document must undergo deterministic canonical serialization. A recommended framework is:
 
 - `params_bytes = canonical_serialize(params_document)`
-- `scheme_commitment = H(domain_tag || model_ref || scheme_id || params_bytes)`
+- `scheme_commitment = H(domain_tag || model_ref || scheme_id || params_bytes)` [14]
 
 Where:
 - `canonical_serialize(·)` is a deterministic serialization procedure specified by the protocol (e.g., canonical JSON: sorted keys, UTF-8, fixed numeric formatting, no redundant whitespace).
 - `H(·)` is the protocol-selected fixed hash function.
-- `domain_tag` is a fixed domain-separation tag to prevent cross-purpose replay and commitment-domain confusion.
+- `domain_tag` is a fixed domain-separation tag to prevent cross-purpose replay and commitment-domain confusion. [13]
 
 The key point is not that the hash function “prefers” a particular chain; rather, any implementation (on any chain, off-chain service, or client) can compute the same commitment value offline.
 
@@ -610,7 +611,7 @@ To prevent signatures over the same payload from being reused in different conte
 - `digest = H(payload_bytes)`
 - `signature = Sign(attest_privkey, digest)`
 
-Here, `H(·)` is a protocol-fixed hash function (as in Section 4.1.2, the key is consistency and determinism), and `Sign` is a signature algorithm chosen by the implementation but must match the public key type declared in the Model Registry.
+Here, `H(·)` is a protocol-fixed hash function (as in Section 4.1.2, the key is consistency and determinism), and `Sign` is a signature algorithm chosen by the implementation but must match the public key type declared in the Model Registry. [15,16]
 
 ###### 3.2 Source of verification key
 
@@ -1042,7 +1043,7 @@ For `NOT_FOUND` or `INCONCLUSIVE/TAMPER_SUSPECT` outcomes, deployments MAY provi
 
 ## 5. Rights & Recursive Royalty Settlement
 
-This section builds on the verifiable provenance primitives and verification loop defined in Section 4, and specifies an implementable mechanism for rights assertions and recursive royalty settlement. The core principle is that royalty settlement SHOULD NOT rely on unauditable off-chain narratives (e.g., “a platform claims this content belongs to someone”), but instead SHOULD be anchored to verifiable provenance anchors and reproducible dependency relationships (Model Registry, Scheme Registry, Generation Records, and the standardized attestation payload and signature). Under these constraints, the system can support cross-platform automated payouts and auditable, recursive revenue distribution.
+This section builds on the verifiable provenance primitives and verification loop defined in Section 4, and specifies an implementable mechanism for rights assertions and recursive royalty settlement. The core principle is that royalty settlement SHOULD NOT rely on unauditable off-chain narratives (e.g., “a platform claims this content belongs to someone”), but instead SHOULD be anchored to verifiable provenance anchors and reproducible dependency relationships (Model Registry, Scheme Registry, Generation Records, and the standardized attestation payload and signature). Under these constraints, the system can support cross-platform automated payouts and auditable, recursive revenue distribution. [20,21,28]
 
 ### 5.1 Rights & Royalty Policy Attachment
 
@@ -1213,11 +1214,11 @@ Deployments MAY tokenize claims on Vault proceeds as transferrable “royalty sh
 
 ## 6. Discussion and Deployment Considerations
 
-This section discusses practical deployment considerations, limitations, and extensions of the proposed provenance and royalty system. While Sections 4–5 define the verifiable on-chain primitives (registries, generation records, standardized attestation payloads) and settlement rules, real-world adoption depends on clearly specifying verification modes, robustness assumptions, governance procedures, and operational safeguards.
+This section discusses practical deployment considerations, limitations, and extensions of the proposed provenance and royalty system. While Sections 4–5 define the verifiable on-chain primitives (registries, generation records, standardized attestation payloads) and settlement rules, real-world adoption depends on clearly specifying verification modes, robustness assumptions, governance procedures, and operational safeguards. [1]
 
 ### 6.1 Verification Modes and Cost Model
 
-A central design goal is to keep the *on-chain* verification surface minimal and auditable, while allowing *off-chain* components to handle computation-heavy tasks such as watermark detection and media-specific preprocessing. Concretely, the system separates verification into two layers:
+A central design goal is to keep the *on-chain* verification surface minimal and auditable, while allowing *off-chain* components to handle computation-heavy tasks such as watermark detection and media-specific preprocessing. Concretely, the system separates verification into two layers: [25,26]
 
 - **On-chain auditable checks (baseline):** resolving registry references, validating commitments, enforcing uniqueness constraints, and verifying signatures over standardized attestation payloads.
 - **Off-chain content analysis (deployment-specific):** running watermark detectors, performing media canonicalization (when applicable), and producing detection evidence (e.g., confidence scores, recovered payload fragments).
@@ -1228,7 +1229,7 @@ Deployments MAY support additional verification modes—such as trusted executio
 
 ### 6.2 Watermark Robustness and Detection Reliability
 
-Watermark-based provenance necessarily depends on the robustness of the chosen scheme under real-world transformations (compression, resizing, cropping, re-encoding, and modality-specific edits). The Scheme Registry is designed to make these assumptions explicit and reproducible:
+Watermark-based provenance necessarily depends on the robustness of the chosen scheme under real-world transformations (compression, resizing, cropping, re-encoding, and modality-specific edits). The Scheme Registry is designed to make these assumptions explicit and reproducible: [1,48]
 
 - `params_uri` publishes a machine-readable detector definition and parameters.
 - `scheme_commitment` anchors the exact detection definition used for verification, preventing post hoc substitution of detection rules.
@@ -1295,89 +1296,102 @@ Future work includes standardized test vectors for payload encoding and detector
 
 ## 7. References
 
-[1] Cloudflare Blog. "AI-generated content watermarking and authentication." blog.cloudflare.com
+[1] Zhao, X., et al. "SoK: Watermarking for AI-Generated Content." arXiv:2411.18479 (2024).
 
-[2] Reuters. "Artists sue AI companies over copyright infringement." reuters.com
+[2] Reuters. "Artists sue AI companies over copyright infringement." (news report).
 
-[3] Zhao, X., et al. "SoK: Watermarking for AI-Generated Content." arXiv:2411.18479 (2024).
+[3] CBS News. "AI-generated Pope Francis image fools millions." (news report).
 
-[4] Balan, K., et al. "Content ARCs: Decentralized Content Rights in the Age of Generative AI." arXiv:2503.14519 (2025).
+[4] Cloudflare Blog. "AI-generated content watermarking and authentication."
 
-[5] Zhang, W., Zhang, Q., Zhu, Y. "Blockchain-Based Protected Digital Copyright Management with Digital Watermarking." Journal of Systems Science and Information (2020).
+[5] Brooks-Mejia, T., Patton, C. "An early look at cryptographic watermarks for AI-generated content." Cloudflare Blog (Mar 19, 2025).
 
-[6] Li, Y., Zhang, H., Wang, K. "WFB: Watermarking-based Copyright Protection Framework for Federated Learning Model via Blockchain." Scientific Reports 14, 17237 (2024).
+[6] Coalition for Content Provenance and Authenticity (C2PA). "C2PA Technical Specification."
 
-[7] Lüthi, P., et al. "Distributed Ledger for Provenance Tracking of AI Assets." arXiv:2002.11000 (2020).
+[7] Content Authenticity Initiative (CAI). "Content Credentials / CAI overview and resources."
 
-[8] Ahmed, I., et al. "Blockchain for video watermarking: An enhanced copyright protection approach for video forensics based on perceptual hash function." PLOS ONE 19(10): e0308451 (2024).
+[8] W3C. "PROV-DM: The PROV Data Model." (2013).
 
-[9] Chen, Y., et al. "A novel blockchain-watermarking mechanism utilizing interplanetary file system and fast walsh hadamard transform." Scientific Reports 14, 22015 (2024).
+[9] W3C. "Decentralized Identifiers (DIDs) v1.0."
 
-[10] Parola Analytics. "Countering deepfakes using digital watermarks and blockchain technology." Parola Blog (Aug 11, 2021).
+[10] W3C. "Verifiable Credentials Data Model v1.1."
 
-[11] CBS News. "AI-generated Pope Francis image fools millions." cbsnews.com
+[11] Bradner, S. "Key words for use in RFCs to Indicate Requirement Levels." RFC 2119 (1997).
 
-[12] Avast Blog. "Criminals use AI voice cloning for fraud." blog.avast.com
+[12] Leiba, B. "Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words." RFC 8174 (2017).
 
-[13] Numbers Protocol. "Blockchain-based content provenance." numbersprotocol.io
+[13] Bormann, C., Hoffman, P. "JSON Canonicalization Scheme (JCS)." RFC 8785 (2020).
 
-[14] Balan, K., Gilbert, A., & Collomosse, J. Content ARCs: Decentralized Content Rights in the Age of Generative AI. ArXiv. arXiv:2503.14519(2025)
+[14] NIST. "Secure Hash Standard (SHS)." FIPS PUB 180-4 (2015).
 
-[15] Makridis CA, Ammons JD. Governing the large language model commons: using digital assets to endow intellectual property rights. Journal of Institutional Economics. 2025;21:e19. 
+[15] Josefsson, S., Liusvaara, I. "Edwards-Curve Digital Signature Algorithm (EdDSA)." RFC 8032 (2017).
 
-[16] The Verge. "Google's SynthID watermark for AI images." theverge.com
+[16] NIST. "Digital Signature Standard (DSS)." FIPS PUB 186-5 (2023).
 
-[17] Brooks-Mejia, T., Patton, C. "An early look at cryptographic watermarks for AI-generated content." Cloudflare Blog (Mar 19, 2025).
+[17] Solana Documentation. "Program Derived Addresses (PDAs)."
 
-[18] Liu, A., et al. "An Unforgeable Publicly Verifiable Watermark for LLMs." ICLR 2024.
+[18] Ethereum Improvement Proposal. "EIP-1014: Skinny CREATE2."
 
-[19] Custos Tech. "Digital fingerprinting for content tracking." custostech.com
+[19] Ethereum Improvement Proposal. "EIP-712: Typed structured data hashing and signing."
 
-[20] Custos Tech. "Forensic watermarks explained." custostech.com
+[20] Ethereum Improvement Proposal. "ERC-721: Non-Fungible Token Standard."
 
-[21] Saini, L. K., & Shrivastava, V. A Survey of Digital Watermarking Techniques and its Applications. ArXiv. arXiv:1407.4735
+[21] Ethereum Improvement Proposal. "ERC-2981: NFT Royalty Standard."
 
-[22] Wen, Y., et al. "Tree-Ring Watermarks: Invisible Fingerprints for Diffusion Images." NeurIPS 2023.
+[22] Benet, J. "IPFS: Content Addressed, Versioned, P2P File System." (2014).
 
-[23] Fernandez, P., Couairon, G., Jégou, H., Douze, M., Furon, T. "The Stable Signature: Rooting Watermarks in Latent Diffusion Models." ICCV 2023, pp. 22466-22477.
+[23] Protocol Labs. "Filecoin: A Decentralized Storage Network." (whitepaper, 2017).
 
-[24] Zhao, Y., Pang, T., Du, C., Yang, X., Cheung, N.-M., Lin, M. "A Recipe for Watermarking Diffusion Models." arXiv:2303.10137 (2023).
+[24] Arweave. "Arweave: A Protocol for Economically Sustainable Information Permanence." (whitepaper).
 
-[25] Reddit. "Audio watermarking frequency techniques." reddit.com
+[25] Costan, V., Devadas, S. "Intel SGX Explained." (2016).
 
-[26] Kirchenbauer, J., Geiping, J., Wen, Y., Katz, J., Miers, I., Goldstein, T. "A Watermark for Large Language Models." ICML 2023, pp. 17061-17084.
+[26] Groth, J. "On the Size of Pairing-based Non-interactive Arguments." EUROCRYPT 2016.
 
-[27] TechCrunch. "OpenAI's attempts to watermark AI text hit limits." TechCrunch (Dec 10, 2022).
+[27] Numbers Protocol. "Blockchain-based content provenance." (project documentation/whitepaper).
 
-[28] Dathathri, S., et al. "Scalable watermarking for identifying large language model outputs." Nature 634(8035), 818-823 (Oct 2024).
+[28] Balan, K., et al. "Content ARCs: Decentralized Content Rights in the Age of Generative AI." arXiv:2503.14519 (2025).
 
-[29] Spectrum IEEE. "Google DeepMind SynthID for text." spectrum.ieee.org
+[29] Lüthi, P., et al. "Distributed Ledger for Provenance Tracking of AI Assets." arXiv:2002.11000 (2020).
 
-[30] Fernandez, P., et al. "VideoSeal: Open and Efficient Video Watermarking." arXiv:2412.09492 (2024).
+[30] Zhang, W., Zhang, Q., Zhu, Y. "Blockchain-Based Protected Digital Copyright Management with Digital Watermarking." Journal of Systems Science and Information (2020).
 
-[31] Gunn, S., Zhao, X., Song, D. "An Undetectable Watermark for Generative Image Models." arXiv:2410.07369 (2024).
+[31] Li, Y., Zhang, H., Wang, K. "WFB: Watermarking-based Copyright Protection Framework for Federated Learning Model via Blockchain." Scientific Reports 14, 17237 (2024).
 
-[32] Christ, M., Gunn, S. "Pseudorandom Error-Correcting Codes." IACR Cryptology ePrint Archive 2024/235 (2024).
+[32] Ahmed, I., et al. "Blockchain for video watermarking: An enhanced copyright protection approach for video forensics based on perceptual hash function." PLOS ONE 19(10): e0308451 (2024).
 
-[33] Bui, T., Agarwal, S., Collomosse, J. "TrustMark: Universal Watermarking for Arbitrary Resolution Images." arXiv:2311.18297 (2023).
+[33] Chen, Y., et al. "A novel blockchain-watermarking mechanism utilizing interplanetary file system and fast walsh hadamard transform." Scientific Reports 14, 22015 (2024).
 
-[34] Liu, A., Pan, L., Hu, X., Meng, S., Wen, L. "A Semantic Invariant Robust Watermark for Large Language Models." ICLR 2024.
+[34] Saini, L. K., Shrivastava, V. "A Survey of Digital Watermarking Techniques and its Applications." arXiv:1407.4735 (2014).
 
-[35] Christ, M., Gunn, S., Zamir, O. "Undetectable Watermarks for Language Models." COLT 2024, pp. 1125-1139.
+[35] Cox, I. J., Miller, M. L., Bloom, J. A., Fridrich, J., Kalker, T. "Digital Watermarking and Steganography." 2nd ed., Morgan Kaufmann (2007).
 
-[36] Nandi, S. "Enhancing AI Transparency: Researchers Develop Advanced Watermarking Techniques." AZoAI News (Dec 5, 2024).
+[36] Boney, L., Tewfik, A. H., Hamdy, K. N. "Digital Watermarks for Audio Signals." Proc. IEEE International Conference on Multimedia Computing and Systems (1996).
 
-[37] Zhao, X., et al. "Invisible Image Watermarks are Provably Removable Using Generative AI." arXiv:2306.01953 (2023).
+[37] Christ, M., Gunn, S. "Pseudorandom Error-Correcting Codes." IACR Cryptology ePrint Archive 2024/235 (2024).
 
-[38] TechCrunch. "Statistical watermark detection methods." techcrunch.com
+[38] Kirchenbauer, J., Geiping, J., Wen, Y., Katz, J., Miers, I., Goldstein, T. "A Watermark for Large Language Models." ICML 2023, pp. 17061-17084.
 
-[39] Spectrum IEEE. "DeepMind watermark in Gemini." spectrum.ieee.org
+[39] Liu, A., et al. "An Unforgeable Publicly Verifiable Watermark for LLMs." ICLR 2024.
 
-[40] Life Architect. "OpenAI watermarking hints." lifearchitect.ai
+[40] Liu, A., Pan, L., Hu, X., Meng, S., Wen, L. "A Semantic Invariant Robust Watermark for Large Language Models." ICLR 2024.
 
-[41] Life Architect. "Transparency in AI outputs." lifearchitect.ai
+[41] Christ, M., Gunn, S., Zamir, O. "Undetectable Watermarks for Language Models." COLT 2024, pp. 1125-1139.
 
-[42] Pan, L., et al. "MarkLLM: An Open-Source Toolkit for LLM Watermarking." EMNLP 2024 System Demonstrations, pp. 61-71.
+[42] Dathathri, S., et al. "Scalable watermarking for identifying large language model outputs." Nature 634(8035), 818-823 (Oct 2024).
 
-[43] Chen, Y., et al. "Dynamic Watermarks in Images Generated by Diffusion Models." arXiv:2502.08927 (2025).
+[43] Pan, L., et al. "MarkLLM: An Open-Source Toolkit for LLM Watermarking." EMNLP 2024 System Demonstrations, pp. 61-71.
 
+[44] Wen, Y., et al. "Tree-Ring Watermarks: Invisible Fingerprints for Diffusion Images." NeurIPS 2023.
+
+[45] Fernandez, P., Couairon, G., Jégou, H., Douze, M., Furon, T. "The Stable Signature: Rooting Watermarks in Latent Diffusion Models." ICCV 2023, pp. 22466-22477.
+
+[46] Zhao, Y., Pang, T., Du, C., Yang, X., Cheung, N.-M., Lin, M. "A Recipe for Watermarking Diffusion Models." arXiv:2303.10137 (2023).
+
+[47] Bui, T., Agarwal, S., Collomosse, J. "TrustMark: Universal Watermarking for Arbitrary Resolution Images." arXiv:2311.18297 (2023).
+
+[48] Zhao, X., et al. "Invisible Image Watermarks are Provably Removable Using Generative AI." arXiv:2306.01953 (2023).
+
+[49] Fernandez, P., et al. "VideoSeal: Open and Efficient Video Watermarking." arXiv:2412.09492 (2024).
+
+[50] Chen, Y., et al. "Dynamic Watermarks in Images Generated by Diffusion Models." arXiv:2502.08927 (2025).
