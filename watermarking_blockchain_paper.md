@@ -200,8 +200,6 @@ Under this abstraction, watermark algorithms may be diverse, but detection defin
 
 ## 4. On-Chain Provenance User Flow
 
-**Conventions.** The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in RFC 2119 and RFC 8174. [11,12]
-
 Figure 1 illustrates the end-to-end user flow for registering model and watermark scheme entries, generating watermarked content, writing a Generation Record on-chain, and verifying provenance using both registry resolution and signature/detection checks.
 
 
@@ -326,6 +324,10 @@ flowchart LR
   RP -->|binds to| GR
 ```
 
+**Figure 3. End-to-end attestation and verification sequence.**  
+Figure 3 depicts the message-level workflow between the generator, the chain, the verifier, and off-chain storage. On the generation side, the model (or inference service) registers the model and scheme, embeds a watermark, computes `content_hash`, constructs canonical `payload_bytes`, signs the payload digest with the attestation private key, and submits a `GenerationRecord` on-chain. On the verification side, a verifier extracts watermark evidence from the content, queries the corresponding record by `(model_ref, content_hash)`, resolves the ModelRegistry to obtain `attest_pubkey`, and resolves the SchemeRegistry to obtain `params_uri` and `scheme_commitment`. The verifier then fetches `params_doc` off-chain, recomputes and compares the commitment, rebuilds the canonical payload to verify the signature, runs the detector using `params_doc`, and outputs a structured status together with an auditable evidence bundle.
+
+
 ```mermaid
 sequenceDiagram
   participant Gen as Generator / Inference Service
@@ -352,6 +354,9 @@ sequenceDiagram
   Ver->>Ver: run detector using params_doc
   Ver->>Ver: output status + evidence bundle
 ```
+
+**Figure 4. Verifier decision flow and status outcomes.**  
+Figure 4 summarizes the verifier’s step-by-step decision process when checking provenance. The verifier first extracts watermark evidence and queries the `GenerationRecord` by `record_key`; if no record exists, it returns `NOT_FOUND`. If a record is found, the verifier resolves the `ModelRegistry` to obtain `attest_pubkey` (otherwise `MODEL_UNKNOWN`), then resolves the `SchemeRegistry` to obtain `params_uri` and the on-chain commitment (otherwise `SCHEME_UNKNOWN`). The verifier fetches `params_doc` and recomputes the commitment; a mismatch indicates tampering or divergence and returns `SCHEME_MISMATCH`. Given a matching commitment, the verifier rebuilds the canonical `payload_bytes` and verifies the attestation signature (failure returns `INVALID_SIG`). Finally, the verifier runs the watermark detector using `params_doc`: if detection confidence is below the configured threshold it returns `DETECTION_FAILED`, otherwise it returns `VALID` together with an auditable evidence bundle.
 
 ```mermaid
 flowchart TD
