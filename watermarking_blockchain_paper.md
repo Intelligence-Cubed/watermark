@@ -1081,56 +1081,87 @@ Deployments MAY tokenize claims on Vault proceeds as transferrable “royalty sh
 - If policies are updateable, freezing or versioning MUST preserve auditability of historical settlements and specify how issued shares behave under policy changes (recommended: policy freeze, or append-only versions without retroactive changes).
 
 
-## 6. Business and Market Impact
+## 6. Discussion and Deployment Considerations
 
-### 6.1 Zero-Knowledge Proofs and the Computational Bottleneck
+This section discusses practical deployment considerations, limitations, and extensions of the proposed provenance and royalty system. While Sections 4–5 define the verifiable on-chain primitives (registries, generation records, standardized attestation payloads) and settlement rules, real-world adoption depends on clearly specifying verification modes, robustness assumptions, governance procedures, and operational safeguards.
 
-One of the most significant technological barriers to bringing AI on-chain has been the computational challenge of verification. Traditional approaches to verifying AI model execution using **zero-knowledge proofs (ZK proofs)** face severe practical limitations. ZK proofs allow one party to prove to another that a computation was performed correctly without revealing the computation's inputs or intermediate steps. In theory, this would be ideal for AI: a model provider could prove "I ran this specific AI model to generate this content" without exposing the model weights or training data.
+### 6.1 Verification Modes and Cost Model
 
-However, the reality is that **verifying AI model inference through conventional ZK circuits requires enormous computational resources**. Modern large language models involve billions of parameters and trillions of floating-point operations for a single inference. Translating these operations into ZK-compatible arithmetic circuits and generating proofs for them would require computational power orders of magnitude greater than the original inference itself. Current estimates suggest that ZK-proving a single forward pass through a model like GPT-4 could take hours or days on specialized hardware and cost thousands of dollars in compute resources. This **computational bottleneck makes direct ZK verification of AI models economically infeasible and impractical** for real-world applications.
+A central design goal is to keep the *on-chain* verification surface minimal and auditable, while allowing *off-chain* components to handle computation-heavy tasks such as watermark detection and media-specific preprocessing. Concretely, the system separates verification into two layers:
 
-### 6.2 Watermarks as a Breakthrough for On-Chain AI
+- **On-chain auditable checks (baseline):** resolving registry references, validating commitments, enforcing uniqueness constraints, and verifying signatures over standardized attestation payloads.
+- **Off-chain content analysis (deployment-specific):** running watermark detectors, performing media canonicalization (when applicable), and producing detection evidence (e.g., confidence scores, recovered payload fragments).
 
-The emergence of robust digital watermarking represents a **paradigm shift** that makes on-chain AI verification practical and economically viable. Instead of verifying the entire AI model computation, we only need to verify the presence of a lightweight watermark embedded in the output. This transforms the verification problem from:
+This separation ensures that the cryptographic *claim-side* authenticity (signature validity under `ModelRegistry.attest_pubkey`) and *definition-side* integrity (`SchemeRegistry.scheme_commitment` matching the canonicalized parameter document) can be reproduced with a bounded and predictable cost profile, while allowing watermark detection implementations to evolve without expanding the on-chain trust base.
 
-**"Prove that model M with weights W, given input I, produced output O"** (computationally intractable)
+Deployments MAY support additional verification modes—such as trusted execution environments (TEE) or zero-knowledge proofs (ZK)—to strengthen guarantees about the generation pipeline. Such modes are best treated as optional attestations layered on top of the baseline, rather than replacing the baseline. In particular, the baseline remains valuable even when stronger proofs are available, because it standardizes references (`model_ref`, `scheme_ref`) and provides a stable audit trail for downstream settlement and dispute workflows.
 
-to:
+### 6.2 Watermark Robustness and Detection Reliability
 
-**"Prove that output O contains valid watermark signature S"** (computationally trivial)
+Watermark-based provenance necessarily depends on the robustness of the chosen scheme under real-world transformations (compression, resizing, cropping, re-encoding, and modality-specific edits). The Scheme Registry is designed to make these assumptions explicit and reproducible:
 
-Watermark verification is several orders of magnitude lighter than full model verification. A watermark detection algorithm might require only milliseconds of computation on standard hardware, compared to the hours or days required for ZK proof generation and verification of the full model. The cost difference is similarly dramatic – from thousands of dollars per verification down to fractions of a cent.
+- `params_uri` publishes a machine-readable detector definition and parameters.
+- `scheme_commitment` anchors the exact detection definition used for verification, preventing post hoc substitution of detection rules.
 
-This lightweight verification enables true **on-chain AI provenance at scale**. Instead of expensive, impractical ZK circuits for model inference, we can use simple, efficient smart contracts that verify watermark signatures. These contracts can quickly confirm that content was generated by a specific registered model, without needing to reconstruct or verify the model's actual computations. This makes it feasible to verify millions of AI-generated outputs daily on a public blockchain, something that would be impossible with traditional ZK approaches.
+Deployments SHOULD specify a detection policy that includes:
 
-The watermark-based approach represents an **important milestone for bringing AI truly on-chain**. For the first time, we can have cryptographically verifiable, decentralized tracking of AI-generated content without requiring prohibitive computational resources. This enables the full vision of on-chain AI ecosystems: transparent model attribution, verifiable content provenance, and automated royalty distribution – all at scale and at sustainable cost.
+- **Thresholding and confidence reporting:** detectors SHOULD output quantitative confidence measures, and verification SHOULD return structured evidence rather than a boolean outcome.
+- **False positive / false negative considerations:** schemes SHOULD be evaluated under representative transformation families, and thresholds SHOULD be chosen with explicit target error rates.
+- **Versioning and comparability:** scheme upgrades SHOULD be versioned rather than overwritten, since parameter changes can shift detector operating characteristics.
 
-### 6.3 Streamlined Royalty Computation and Payment
+In adversarial settings, attackers may attempt watermark removal, desynchronization, or the construction of confusing artifacts that trigger spurious detections. For this reason, the protocol’s decision semantics emphasize the combination of evidences: scheme integrity (commitment check), claim authenticity (signature verification), and content-side detection. Deployments MAY introduce additional “inconclusive” outcomes (e.g., suspected tampering) when detection fails despite a valid on-chain claim, to reflect realistic ambiguity under heavy transformations.
 
-Beyond verification, watermark-based provenance dramatically simplifies **royalty calculation and distribution**. In traditional digital content licensing, tracking usage and computing royalties requires extensive manual accounting, auditing, and trust in centralized intermediaries. Disputes over attribution and payment splits are common and expensive to resolve.
+### 6.3 Governance: Key Rotation, Revocation, and Freezing
 
-With watermark-based on-chain provenance, royalty computation becomes **automated and transparent**. The blockchain maintains an immutable record of content lineage – which model generated it, which data contributed to training, which creators provided source material. Smart contracts can traverse this provenance graph and automatically calculate each party's share based on pre-agreed percentages. When content generates revenue (through sales, licensing, advertising, etc.), the smart contract immediately splits the payment according to the on-chain rules and distributes funds to all contributors' wallets.
+Operational security requires explicit governance procedures for cryptographic keys and registry entries.
 
-This automation has profound implications:
+**Key rotation.** The Model Registry supports updating `attest_pubkey` to address key compromise, infrastructure migration, or hardware rotation. Deployments SHOULD treat the on-chain update event as the sole source of truth for the effective time of key changes. Historical verification MUST use the key that was valid at the time the corresponding Generation Record was produced, according to on-chain state transitions.
 
-**Cost efficiency**: No need for expensive auditing firms or payment processors. Smart contracts execute automatically with minimal gas fees (often less than a dollar per transaction).
+**Freezing.** A model MAY enter an immutable state where critical fields (e.g., `attest_pubkey`, `model_version`) cannot be modified. Freezing improves auditability for high-assurance deployments by preventing silent drift in identity or verification keys.
 
-**Transparency**: All parties can verify the royalty calculations and payment history on-chain. There's no "black box" accounting where creators must trust platforms to pay them fairly.
+**Revocation and disablement.** Ecosystems may require “soft revocation” to address policy violations or compromised models. A `disabled` or `revoked` flag SHOULD preserve historical records while signaling elevated risk. Verifiers and marketplaces SHOULD surface these states explicitly in outputs and UI, rather than deleting or rewriting history.
 
-**Real-time payments**: Contributors receive their share instantly when revenue is generated, rather than waiting for quarterly reports and delayed payments.
+Similar governance applies to Scheme Registry entries: parameter sets SHOULD be versioned, and schemes SHOULD support deprecation rather than mutation, preserving reproducibility for past validations.
 
-**Multi-generational tracking**: The system naturally handles complex scenarios where content is derived from other content multiple times. Even if content is remixed through five generations, the smart contract can trace back through the entire lineage and ensure all contributors receive their fair share.
+### 6.4 Cross-Chain Interoperability
 
-**Global scale**: The blockchain-based system works identically whether the content is sold in New York, Tokyo, or Lagos. There's no need to navigate different legal jurisdictions, currencies, or payment systems.
+The system is designed to remain implementable across heterogeneous execution environments. Interoperability follows from standardizing:
 
-For business models, this creates **unprecedented opportunities**:
+- **Stable references:** `model_ref` and `scheme_ref` serve as resolvable anchors for identity and detection definition.
+- **Canonical payload construction:** verifiers reconstruct identical `payload_bytes` and digests from on-chain fields, independent of chain-specific storage models.
+- **Commitment anchoring:** `scheme_commitment` (and optionally `policy_commitment`) binds off-chain documents to on-chain facts.
 
-- **Data providers** can monetize their contributions to AI training datasets by receiving automated royalties every time models trained on their data generate revenue
-- **Model developers** can guarantee fair compensation through on-chain royalty rules, making it economically rational to share or license their models
-- **Content creators** can allow AI remixing of their work while ensuring they benefit from derivative creations
-- **Investors** can fund AI development and content creation by purchasing royalty-bearing tokens, creating liquid markets for AI intellectual property
+Different chains may use different signature primitives (e.g., secp256k1 vs. ed25519). This does not alter the attestation payload semantics, but deployments MUST declare the signature algorithm associated with a given `attest_pubkey` (e.g., via model metadata or an explicit field) to avoid ambiguity.
 
-The combination of lightweight watermark verification and automated on-chain royalty computation fundamentally changes the economics of AI-generated content. It removes the technical and economic barriers that have prevented truly decentralized AI ecosystems, paving the way for new business models where value flows fairly to all contributors.
+A single content item MAY be registered on multiple chains (e.g., for ecosystem reach or redundancy). In such cases, deployments SHOULD define a primary anchoring policy (e.g., a canonical chain for settlement) and a mirroring policy (e.g., replicated records for verification), ensuring that cross-chain records remain consistent in their references and commitments.
+
+### 6.5 Abuse Resistance, DoS Considerations, and Indexing
+
+Open systems require safeguards against spam, state bloat, and adversarial usage patterns.
+
+**Uniqueness constraints.** Enforcing a uniqueness domain (recommended: `(model_ref, content_hash)`) mitigates replay-style duplication and simplifies indexing. Deployments SHOULD define deterministic conflict handling for repeated submissions.
+
+**Bounded traversal.** Recursive royalty requires explicit depth bounds (`max_depth`) and deterministic handling of missing lineage nodes. Without bounded traversal, settlement can be exploited for resource exhaustion.
+
+**Size limits and indirection.** Large fields (e.g., parameter documents, license texts) SHOULD remain off-chain, referenced by URIs and anchored via commitments. On-chain fields such as `metadata_uri` and `params_uri` SHOULD be subject to size constraints to reduce DoS risk.
+
+**Indexing requirements.** Practical verification relies on efficient retrieval of Generation Records and referenced registries. Deployments SHOULD provide indexing strategies for:
+- retrieving records by `content_hash` or `record_key`,
+- resolving `model_ref` and `scheme_ref` to current (and historical) entries,
+- enumerating lineage edges for bounded traversal.
+
+Finally, verifiers SHOULD return structured status codes and evidence fields (e.g., `SCHEME_MISMATCH`, `INVALID_SIG`, `NOT_FOUND`) so platforms can apply consistent handling across clients, marketplaces, and compliance tools.
+
+### 6.6 Limitations and Future Work
+
+Several limitations remain inherent or deployment-dependent:
+
+- **Transformation ambiguity:** strong transcoding or aggressive edits may break watermark detection while preserving semantic similarity, motivating “inconclusive” outcomes and optional dispute workflows.
+- **Detector diversity:** different detector implementations may yield different confidence values; publishing canonical test vectors and reference implementations can improve interoperability.
+- **Stronger pipeline attestations:** integrating TEEs or ZK proofs for generation-time guarantees is an important extension, but should be layered to preserve the baseline’s simplicity and auditability.
+
+Future work includes standardized test vectors for payload encoding and detector behavior, richer policy languages for licensing, and formal analyses of adversarial robustness under realistic media pipelines.
+
 
 ## 7. References
 
