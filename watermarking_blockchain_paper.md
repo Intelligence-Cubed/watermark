@@ -294,6 +294,35 @@ flowchart TB
   K4 -- Yes --> K6["Updated state reflected in registry"]
 ```
 
+```mermaid
+flowchart LR
+  subgraph OffChain["Off-chain Artifacts"]
+    P["params_doc<br/>(detector spec + params)"]
+    C["content (file)"]
+    L["license_terms / royalty_terms<br/>(policy doc)"]
+  end
+
+  subgraph OnChain["On-chain Primitives"]
+    MR["ModelRegistry / ModelAccount<br/>owner, attest_pubkey, model_version, metadata_uri"]
+    SR["SchemeRegistry / SchemeAccount<br/>model_ref, scheme_id, params_uri, scheme_commitment"]
+    GR["GenerationRecord / GenerationAccount<br/>record_key=(model_ref, content_hash), scheme_ref,<br/>parent_hash?, timestamp, nonce, signature"]
+    RP["RoyaltyPolicy<br/>record_key, rights_owner, license_uri,<br/>policy_commitment, royalty_terms"]
+  end
+
+  SR -->|params_uri| P
+  P -->|recompute| SR
+
+  GR -->|content_hash| C
+  GR -->|model_ref| MR
+  GR -->|scheme_ref| SR
+  GR -->|attest_pubkey verifies signature| MR
+
+  RP -->|license_uri| L
+  L -->|recompute| RP
+  RP -->|binds to| GR
+```
+
+
 
 ### 4.1 Provenance Registration & Watermark Embedding
 This section presents a verifiable provenance registration and watermark-embedding workflow that links detectable watermark signals in content with auditable origin claims. We first introduce three foundational components: a Model Registry to establish model identity and attestation keys; a Watermark Scheme Registry to publish reproducible detection rules along with an integrity anchor; and Generation Records to persist each generation claim as an on-chain fact that is queryable and indexable. We then define a canonical attestation message format so that verifiers can reconstruct the same message and validate signature consistency. Finally, we provide an end-to-end workflow describing how the generation side produces, embeds, and registers content, and how the verification side queries records, validates parameters, and completes detection and signature verification.
