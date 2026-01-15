@@ -114,33 +114,89 @@ Independent, cross-platform verification requires elevating “who may claim” 
 
 The key principle is to keep on-chain storage to a minimal set of auditable facts: large documents and heavy computation remain off-chain, while commitments and signatures bind off-chain information to on-chain anchors. With this structure, a verifier can resolve registries, validate commitments, reconstruct canonical attestation messages, verify signatures, and combine the result with content-side detection evidence—without relying on any centralized platform—forming a trustworthy basis for rights attachment and recursive settlement.
 
-## 3. Watermark Techniques and Properties
+## 3. Multimodal Watermarking Techniques and Detectability Properties
 
-Having covered the general concepts, we now examine current mainstream watermarking methods for different content modalities and compare their properties, laying the groundwork for our on-chain system design.
+This section surveys watermarking techniques across text, images, audio, and video, with emphasis on the engineering properties that matter most in *verifiable provenance*: **reproducible detection** and **auditable parameterization**. Rather than exhaustively cataloging algorithms, we adopt an abstraction that is central to system design: any watermark suitable for provenance SHOULD be treated as a publishable, versioned, and independently reproducible **watermark scheme**. Its detector definition and parameters must be made machine-readable and anchored via an integrity commitment, so verification does not depend on private implementations or mutable, off-chain “rules,” and so ecosystems avoid divergence and post hoc parameter substitution.
 
-### 3.1 Text Watermark
+### 3.1 Scheme Abstraction: Embedder, Detector Specification, and Parameters
 
-Watermarking AI-generated text embeds barely perceptible patterns in LLM outputs. Two primary approaches:
+In our framework, a watermark scheme consists of three components:
 
-**(a) Invisible character embedding**: inserting zero-width Unicode characters to encode information. Simple but easily removed, so robustness is low.
+- **Embedder:** given content and identifier/randomness inputs, embeds a hidden signal while preserving usability.
+- **Detector specification:** defines detection inputs, preprocessing, statistical tests/decoding procedures, and output semantics (e.g., confidence scores, recovered payload fragments, error-correction diagnostics).
+- **Parameters and thresholds:** include (when applicable) key derivation rules, window sizes, thresholds, ECC configuration, synchronization/alignment strategies, and robustness settings.
 
-**(b) Probability distribution encoding**:  tweaking word selection to imprint a statistical signature. OpenAI's prototype uses a secret key to classify vocabulary into "green" and "red" lists, biasing toward green-list words [26, 27, 38]. This is invisible to readers and maintains fluency. However, text watermarks are **fragile**: paraphrasing or regeneration can destroy the signal [27]. Research to improve robustness includes larger n-gram patterns or syntactic watermarking, but there's a trade-off between detection reliability and vulnerability to removal. Google's DeepMind has integrated SynthID-Text into Gemini [28, 39], and OpenAI has hinted at watermarking [40, 41]. More robust schemes with cryptographic assurances [18, 34] and open-source toolkits [42] are anticipated.
+To achieve auditability and cross-implementation consistency, the detector specification and parameters SHOULD be published as a standardized document (e.g., JSON/CBOR) and anchored by `scheme_commitment`. Before running detection, a verifier must be able to:  
+(1) fetch the parameter document; (2) canonicalize it; (3) recompute and match the commitment; and (4) execute detection under a well-defined detector specification to produce reproducible evidence.
 
-### 3.2 Image Watermark
+This abstraction “compresses” algorithmic diversity into an auditable scheme entry, allowing the verifier loop and settlement logic to remain independent of any particular watermark algorithm.
 
-Digital watermarking is most established for images. Traditional methods embed watermarks in frequency domains (DCT coefficients, LSB flips) [21]. Learning-based approaches now dominate: generative models are augmented so **every generated image contains a hidden watermark by design**. Google's **SynthID** adds an invisible, hard-to-remove pattern that doesn't affect image quality but remains detectable after cropping, re-scaling, or filters [16]. SynthID uses adversarial training to ensure robustness [28]. The system relies on secure keys rather than algorithm secrecy – even knowing the algorithm, attackers without the key cannot forge or erase the watermark without damaging the image [17]. Other novel methods include dynamic watermarks [43] and "tree-ring" watermarks [22].
+### 3.2 Text Watermarking: Statistical Bias and Verifiable Outputs
 
-**Video watermarking** extends image techniques. Meta's **VideoSeal** embeds signatures across video frames using deep learning, optimized for video-specific distortions (compression, frame rate changes) [30]. It achieves robust detection even with cropping or dropped frames by leveraging temporal redundancy.
+Text watermarking commonly operates during generation by introducing statistically testable bias into token sampling distributions, so that the output sequence exhibits stable statistical signatures under a given key/parameterization. A detector applies tokenization/normalization, evaluates the sequence via fixed windows or global tests, and outputs a confidence score.
 
-### 3.3 Audio Watermark
+**Typical parameter set (illustrative).** Text scheme documents often include:
 
-Audio watermarking leverages human hearing **masking effects**: modifications in ranges where louder audio dominates go unnoticed. Common methods include adding low-level broadband noise shaped to the audio spectrum, introducing faint echoes, or tweaking phase [25]. A robust audio watermark should withstand re-sampling, **lossy compression** (MP3/AAC), ambient noise, and speed/pitch adjustments. Advanced schemes use **spread spectrum** signals – pseudorandom sequences spanning wide frequency ranges at low power, requiring destruction of large audio portions to remove [21]. Error-correcting codes help recover messages even with partial loss. The human ear's sensitivity requires extreme subtlety – poorly implemented watermarks creating audible artifacts are unacceptable. Recent developments include watermarking integrated with AI **vocoders** or speech synthesizers, constraining the model's output layer to produce watermarked audio from the start, potentially yielding more hidden yet resilient marks.
+- vocabulary partitioning or hash-mapping rules (defining the “biased set”)
+- sampling/bias strength parameters (trade-off between detectability and naturalness)
+- detection windows and aggregation rules (sliding windows, chunked tests, or global tests)
+- thresholds and significance levels (mapping statistics to pass/fail or confidence)
+- normalization and preprocessing rules (case handling, punctuation, tokenization strategy)
+- (optional) error correction or repetition constraints
 
-### 3.4 Multi-Modal & Metadata Watermark
+**Provenance-specific considerations.** Text is frequently rewritten, translated, summarized, or paraphrased in distribution. As a result, detectors should prioritize **confidence + explicit failure semantics**, and allow “inconclusive / suspected tampering” outcomes when signature-backed claims exist but detection fails, rather than treating detection failure as definitive forgery. Versioning of thresholds and preprocessing rules is particularly important for reproducible evaluation.
 
-Beyond altering content signals, methods based on metadata exist. The **C2PA standard (Coalition for Content Provenance and Authenticity)** allows producers to attach cryptographic metadata "credentials" to files, recording creator, editing history, or AI-generation status. This has **zero quality impact** but metadata can be easily stripped. A practical strategy **combines invisible watermarks with metadata signatures**: the watermark serves as a hidden backup, while metadata provides a convenient provenance trail. Numbers Protocol creates a hash "fingerprint" registered on-chain plus C2PA metadata; if metadata is stripped, the hash or watermark can still match against the blockchain [13].
+### 3.3 Image Watermarking: Spatial, Frequency, and Latent Embedding
 
-A watermark serves as a **content-level ID tag**, while blockchain serves as an **immutable registry**. This multi-pronged strategy provides defense in depth.
+Image watermarks may be embedded in pixel space, frequency space (e.g., DCT/DWT), or the latent representations of generative models. For generative pipelines, watermark structure may also be injected during generation, potentially improving stability or increasing resistance to independent removal.
+
+**Typical parameter set (illustrative).** Image scheme documents often include:
+
+- embedding domain selection and band configuration (pixel / frequency / latent)
+- embedding strength and perceptual masking settings (imperceptibility control)
+- synchronization/alignment strategies (robustness to cropping, resizing, rotation)
+- error-correction codes (recoverability under compression and noise)
+- detection thresholds and confidence definitions
+
+**Provenance-specific considerations.** Common distribution transforms (compression, re-encoding, resizing) substantially affect detection statistics. For independent reproducibility, parameter documents MUST specify preprocessing conventions (color space, resolution normalization, resampling strategy) and output semantics. For compositing or partial-crop scenarios, detectors may output *local evidence* alongside *global conclusions* to improve auditability and dispute handling.
+
+### 3.4 Audio Watermarking: Imperceptible Embedding and Resampling Robustness
+
+Audio watermarking emphasizes imperceptibility and robustness to compression, resampling, and additive noise. Representative approaches include spread-spectrum, echo hiding, phase modulation, and subband embedding. Reliable verification typically requires strict preprocessing (sample-rate normalization, windowing, filtering) to stabilize detection.
+
+**Typical parameter set (illustrative).** Audio scheme documents often include:
+
+- sampling rate and resampling rules (detection-time normalization requirements)
+- framing windows and overlap strategies
+- subband selection, embedding strength, and masking models
+- synchronization and time-shift alignment strategies
+- thresholds and confidence computation
+
+**Provenance-specific considerations.** Platform pipelines often include “transcoding + loudness normalization + noise suppression,” which can meaningfully shift detection statistics. Scheme parameters should therefore explicitly define preprocessing requirements; otherwise cross-platform verification may produce inconsistent and hard-to-audit outcomes.
+
+### 3.5 Video Watermarking: Spatiotemporal Consistency and Time-Domain Attacks
+
+Video watermarking must address not only spatial embedding per frame, but also temporal robustness. Frame dropping, insertion, speed changes, transcoding, and GOP reconstruction can disrupt synchronization. Robust schemes typically combine spatial signals with temporal redundancy plus stronger synchronization and error correction.
+
+**Typical parameter set (illustrative).** Video scheme documents often include:
+
+- frame sampling and temporal window definitions (time granularity for detection)
+- spatial embedding parameters (similar to images) plus temporal redundancy/ECC parameters
+- synchronization strategies (keyframe localization, timeline alignment, periodic structures)
+- transcoding tolerance assumptions (bitrate ranges, GOP structure expectations)
+- output evidence structure (global conclusion plus segment/local evidence)
+
+**Provenance-specific considerations.** Video verification benefits from audit-friendly outputs: where feasible, detectors should provide segment-level confidence summaries or hit-window descriptors rather than a single pass/fail bit, improving integration and dispute resolution.
+
+### 3.6 From Watermarking to Verifiable Provenance: Anchoring and Versioning Detector Definitions
+
+In provenance systems, an often-overlooked but critical question is: *which* detection rule set is the verifier supposed to use? If parameter documents are mutable, an adversary can swap thresholds, disable checks, or alter preprocessing to produce contradictory conclusions across implementations. To prevent this, the detector definition and parameter document MUST be anchored via an on-chain commitment and SHOULD be versioned rather than overwritten:
+
+- Scheme upgrades SHOULD create new scheme versions while keeping older versions queryable, ensuring historical verification remains reproducible.
+- Verification results MUST reference a specific `scheme_ref`, not an informal algorithm label.
+- Where feasible, schemes SHOULD provide reference implementations or test vectors to validate cross-implementation consistency.
+
+Under this abstraction, watermark algorithms may be diverse, but detection definitions must be reproducible and parameters auditable in order to produce consistent, independently verifiable provenance conclusions across platforms and chains.
 
 
 ## 4. On-Chain Provenance User Flow
