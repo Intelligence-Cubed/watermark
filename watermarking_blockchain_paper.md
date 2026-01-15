@@ -294,6 +294,10 @@ flowchart TB
   K4 -- Yes --> K6["Updated state reflected in registry"]
 ```
 
+**Figure 2. On-chain primitives and off-chain artifacts (object relationship view).**  
+Figure 2 summarizes how the protocol binds *content-side evidence* to *auditable on-chain claims* using a minimal set of on-chain primitives and integrity anchors. **ModelRegistry (ModelAccount)** establishes model identity and publishes `attest_pubkey`, which verifiers use to validate attestation signatures. **SchemeRegistry (SchemeAccount)** publishes the watermark detector definition via `params_uri` and anchors it with `scheme_commitment`, allowing verifiers to fetch `params_doc` off-chain and recompute the commitment to prevent post hoc rule substitution. **GenerationRecord (GenerationAccount)** persists a single provenance claim as an on-chain fact, keyed by `record_key = (model_ref, content_hash)`, referencing a specific `scheme_ref`, and optionally linking derivation via `parent_hash`; its signature is verified against the `attest_pubkey` resolved from ModelRegistry. **RoyaltyPolicy** binds rights/settlement terms to a specific `record_key`, and anchors off-chain policy documents (`license_uri`) via `policy_commitment` to make royalty computation reproducible and tamper-evident. Off-chain artifacts (content files, `params_doc`, and policy docs) remain off-chain for scalability, while their integrity is enforced through on-chain commitments and stable references.
+
+
 ```mermaid
 flowchart LR
   subgraph OffChain["Off-chain Artifacts"]
