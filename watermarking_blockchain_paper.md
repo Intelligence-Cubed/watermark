@@ -517,6 +517,9 @@ Given a scheme entry referenced by a generation claim, the verifier SHOULD:
 4. Otherwise, run watermark detection using the detector and parameters specified in the document, then proceed to the subsequent generation-claim verification steps.
 
 
+**Figure 5. Canonical attestation payload structure and signature binding.**  
+Figure 5 illustrates how an attestation is constructed from a canonical `payload_bytes` layout with explicit domain separation and fixed field ordering. The payload includes (i) `domain_tag` and `schema_version`, (ii) registry references (`model_ref`, `scheme_ref`), (iii) content anchors (`content_hash` and optional `parent_hash`), (iv) freshness/uniqueness fields (`timestamp`, `nonce`), and (v) an optional `context_hash` for binding additional context without expanding the core schema. The verifier computes `digest = H(payload_bytes)` and checks `signature = Sign(attest_privkey, digest)` against `attest_pubkey` resolved from the ModelRegistry, ensuring that the provenance claim is cryptographically bound to a specific model identity, scheme version, and content anchor.
+
 ```mermaid
 flowchart TB
   P["attestation payload_bytes"] --> DT["domain_tag + schema_version"]
