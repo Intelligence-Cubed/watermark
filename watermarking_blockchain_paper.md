@@ -32,28 +32,87 @@ This paper proposes a multi-chain–deployable framework for **verifiable proven
 
 ### 2.1 Digital Watermark Concept and Characteristics
 
-A **digital watermark** is a technology for embedding hidden identifiers into digital content for copyright marking and content authentication [3]. A typical watermark system involves **watermark embedding** and **watermark detection/extraction**. The encoder merges identifier information (e.g. owner ID, content ID) with the original content to produce a watermarked piece; the decoder extracts or verifies the hidden identifier to confirm its source [3,10].
+## 2. Technical Background
 
-An ideal digital watermark should satisfy:
-- **Imperceptibility**: embedding should not cause perceptible quality degradation [16]
-- **Robustness**: the watermark should remain detectable even after common transformations (re-compression, cropping, noise, format conversion) [3]. Watermarks are classified as *robust* (survive moderate edits) or *fragile* (destroyed by tiny changes, used to detect tampering)
-- **Security**: watermark schemes use secret keys – only those with the key can embed or detect the watermark. Unauthorized attackers should neither easily detect nor remove it without degrading content [17]. A secure watermark should be **unforgeable**: computationally infeasible to create valid watermarked content without the secret key [18]
+This section reviews the key background required by our framework. On one hand, we summarize multimodal watermarking and its use in AI-generated content. On the other hand, we introduce the cryptographic and system primitives needed to make provenance claims *reproducible* and *auditable* (commitments, canonical serialization, signatures with domain separation, and on-chain registry patterns). Together, these foundations explain why “the mere presence of a watermark” is insufficient for cross-platform attribution, and why registries, commitments, and canonical message formats are necessary to avoid implementation divergence and post hoc tampering.
 
-### 2.2 Watermark vs. Digital Fingerprint
+### 2.1 Digital Watermarking: Concept and Core Properties
 
-Digital watermarks embed the **same identifier** in all copies of content to label source or copyright. A **digital fingerprint** embeds a **unique hidden ID in each individual copy** to trace which specific copy was leaked [19,20]. Our system focuses on watermarks for source authentication (marking AI outputs with model ID), though the framework could extend to fingerprinting for tracing distribution channels.
+Digital watermarking embeds a hidden signal into content while preserving usability, such that the signal can later be recovered (or statistically detected) even after distribution and moderate editing. Unlike explicit labels, a watermark is an implicit marker within the artifact itself, enabling *content-side evidence* that can survive platform boundaries and typical media pipelines.
 
-### 2.3 Multi-Modal Watermarking Techniques
+A watermark scheme intended for provenance typically targets the following properties (with modality-specific trade-offs):
 
-Digital watermarking is well-established for images and video. Classic methods work by adding imperceptible noise in transform domains (DCT, wavelet) or altering least significant pixel bits [21]. Advanced strategies integrate watermarks into the generative model itself: Wen et al. (2023) propose "Tree-Ring Watermark" for diffusion models that injects a circular interference pattern into initial noise, causing every generated image to carry a hidden spectral pattern [22]. Other approaches root watermarks directly in the latent diffusion models [23] or propose recipes for watermarking diffusion models [24].
+- **Imperceptibility:** embedding should not introduce perceptible degradation in quality or semantics.
+- **Robustness:** the watermark should remain detectable under common distribution transforms (compression, re-encoding, resizing, cropping, mild noise, format conversion, etc.).
+- **Security:** without the secret key/parameters, an adversary should find it difficult to forge “apparently valid” watermark evidence or reliably remove the watermark without significantly harming content utility.
+- **Capacity and decodability:** the information capacity (or identifier space) and the stability of recovery.
+- **Reproducibility:** given an explicit detector definition and parameters, third parties should be able to independently run detection and reproduce results.
 
-For audio watermarks, techniques leverage human hearing masking effects, embedding signals in less audible frequency ranges or using phase modulation [25]. For text watermarking, sophisticated approaches bias language model word choices to encode statistical patterns – Kirchenbauer et al. (2023) pioneered a method using a secret key to designate "green-list" words, nudging the model to prefer them such that the distribution reveals a hidden signature [26, 27]. Google DeepMind's SynthID-Text similarly acts as a logits processor [28, 29]. Text watermarks face fragility challenges: paraphrasing can disrupt statistical markers [27].
+Crucially, watermarking provides *content-side evidence*—it answers whether an artifact carries a detectable signal. Upgrading this into *authenticated attribution* (e.g., “this content originates from model X”) requires claim-side authenticity and definition-side reproducibility (Sections 2.5–2.7).
 
-### 2.4 New Developments in Watermarking
+### 2.2 Watermarks, Fingerprints, and Content Hashes
 
-Recent advances apply deep learning to watermarking, enabling end-to-end optimization of encoder-decoder pairs for embedding and detection after distortions [3]. Google's SynthID [16, 28] and Meta's VideoSeal [30] use neural networks to encode signatures directly into content imperceptibly, withstanding blurring, cropping, re-encoding [16]. These are trained adversarially: watermarked content undergoes simulated attacks, and the decoder learns to still extract the watermark. Gunn et al. (2024) propose using pseudo-random error-correcting codes in diffusion model latent space to embed encrypted signatures across semantic levels, making watermarks undetectable without the key [31, 32]. There are even methods emerging for universal watermarking across different image resolutions [33].
+Watermarks, fingerprints, and hashes all support content identification, but they differ in objectives and threat models:
 
-Another research line focuses on anti-forgery and public verification. Liu et al. (2024) propose "unforgeable and publicly verifiable watermarks for LLMs" by separating generation and detection with different keys, leveraging cryptographic principles to provide security guarantees [17, 18]. Other work focuses on semantic-invariant watermarks robust to paraphrasing [34, 35]. These approaches aim for reliable and trustworthy watermarking with provable security properties [32, 36]. However, some research also highlights that invisible image watermarks may be provably removable with generative AI [37].
+- **Watermarks** commonly embed a shared or linkable identifier across artifacts from the same source, enabling attribution signals and authenticity cues.
+- **Fingerprinting** often targets per-copy uniqueness: different distributed copies of the same content embed distinct identifiers to trace leakage sources or distribution paths. The emphasis is on distinguishing copies rather than proving “belongs to a source.”
+- **Content hashes** compute a cryptographic digest over bytes. Hashes provide strong integrity and collision resistance, but are extremely brittle to byte-level changes. Transcoding, container changes, metadata edits, compression, and cropping routinely break hash equality. As a result, hashes are best used as *on-chain anchors and non-repudiable references*, not as the sole identifier across heterogeneous distribution environments.
+
+A deployable provenance system therefore benefits from combining robust watermark evidence with strong hash/commitment anchors and authenticated signatures, forming a composite evidence chain.
+
+### 2.3 Multimodal Watermarking Overview (Text, Images, Audio, Video)
+
+Different modalities impose different constraints and attack surfaces. In our framework, modality diversity is abstracted as a *scheme* plus a *parameterized detector definition* published via a registry.
+
+- **Text watermarking.** Common approaches bias token sampling (e.g., vocabulary partitioning, distribution shaping) to induce statistically testable patterns. Detectors evaluate sequences under secret parameters and output confidence. Text watermarking often depends on generation-process consistency and is sensitive to rewriting or translation, making detector thresholds, windows, ECC strategies, and corpus assumptions particularly important.
+- **Image watermarking.** Signals may be embedded in pixel space, frequency space, or model latent space. For generative models (e.g., diffusion), watermark structure can also be introduced during generation or in latent representations. Parameters typically include embedding strength, band selection, synchronization/alignment, error-correcting codes, and detection thresholds, which define robustness to compression, resizing, and cropping.
+- **Audio watermarking.** Techniques include spread-spectrum, echo hiding, phase modulation, and subband embedding, balancing imperceptibility with robustness to compression and resampling. Detector parameters are often coupled to sample rate, windowing, synchronization, and noise assumptions.
+- **Video watermarking.** Beyond per-frame embedding, temporal consistency and resistance to time-domain attacks (frame dropping, speed changes, interpolation, transcoding) become central. Parameters commonly span both spatial and temporal synchronization plus error correction.
+
+In our architecture, these modality differences do not change the verifiable backbone, but they determine the detector definition and parameters published in the Scheme Registry so that verifiers can reproduce detection and produce auditable evidence.
+
+### 2.4 Recent Progress and Practical Attack Surfaces
+
+Watermarking has expanded from purely post-processing embedding to *generation-time embedding*, especially for large language models and diffusion-based generators. At the same time, practical adversarial pressure has increased: automated watermark removal, rewriting and style transfer, adversarial desynchronization, and mixed/composited content that introduces detection ambiguity.
+
+These realities motivate explicit robustness assumptions and failure semantics. Under strong transformations or adversarial edits, “detection failure” does not necessarily imply “forgery”; it may warrant an “inconclusive” or “suspected tampering” outcome. Our verifier loop therefore returns structured status codes and an evidence bundle rather than a single boolean.
+
+### 2.5 Cryptographic Commitments and Canonicalization
+
+When verification depends on off-chain documents (e.g., detector parameters, thresholds, ECC configuration, license terms), a `params_uri` or `license_uri` alone is insufficient for auditability because the referenced content can be swapped or drift over time. We therefore introduce **commitments** as immutable integrity anchors:
+
+- **`scheme_commitment`** commits to the watermark scheme’s detector definition and parameter document, enabling verifiers to fetch the document, canonicalize it, recompute the commitment, and check consistency.
+- **`policy_commitment`** (for licensing/royalties) commits to rights terms and structured settlement rules, preventing “post hoc substitution” at settlement time.
+
+To make commitments reproducible, the commitment input MUST be a deterministic byte representation. This requires **canonical serialization** (`canonical_serialize`), defining stable field ordering, encoding, and byte-level conventions for JSON/YAML/CBOR-like documents so different implementations derive identical `bytes` for the same semantic document.
+
+Commitments and signature inputs SHOULD also apply **domain separation** (e.g., via `domain_tag`) to prevent cross-protocol confusion and unintended hash reuse.
+
+### 2.6 Digital Signatures, Domain Separation, and Replay Resistance
+
+Watermark detection alone only establishes “content-side evidence” and cannot authenticate “which model or rights holder produced this claim.” We therefore use **claim-side signatures**: an authorized entity signs a standardized attestation payload under a dedicated attestation public key, enabling any verifier to independently validate the claim.
+
+To avoid cross-implementation divergence, the signature input MUST be **canonical `payload_bytes`**, and SHOULD include:
+
+- `domain_tag` for domain separation across contexts,
+- `schema_version` for evolution and compatibility,
+- `model_ref` and `scheme_ref` to bind the claim to resolvable registry anchors,
+- `content_hash`, `timestamp`, and `nonce` to bind a content anchor and provide anti-replay context,
+- optional `parent_hash` to express derivation and support lineage auditing and recursive royalties.
+
+Replay resistance is typically achieved by combining:
+1) an on-chain uniqueness domain for Generation Records (e.g., `(model_ref, content_hash)`), preventing duplicate registrations; and  
+2) `nonce/timestamp` in the attestation payload, supporting auditability for offline signing and multi-chain mirroring.
+
+### 2.7 On-Chain Registries and the Minimal Pattern for Verifiable Claims
+
+Independent, cross-platform verification requires elevating “who may claim” and “which detector definition applies” from private databases to publicly auditable on-chain anchors. We adopt a registry-based pattern:
+
+- **Model Registry** establishes model identity and the authorized attestation public key `attest_pubkey`, which verifiers use to validate signed provenance claims.
+- **Scheme Registry** publishes `params_uri` and anchors the detector definition via `scheme_commitment`, and expresses a binding relationship between the scheme and the model.
+- **Generation Record** persists a single generation claim as an on-chain fact, including `model_ref`, `scheme_ref`, `content_hash`, `parent_hash`, and `signature`, enabling query, indexing, and audit.
+
+The key principle is to keep on-chain storage to a minimal set of auditable facts: large documents and heavy computation remain off-chain, while commitments and signatures bind off-chain information to on-chain anchors. With this structure, a verifier can resolve registries, validate commitments, reconstruct canonical attestation messages, verify signatures, and combine the result with content-side detection evidence—without relying on any centralized platform—forming a trustworthy basis for rights attachment and recursive settlement.
 
 ## 3. Watermark Techniques and Properties
 
