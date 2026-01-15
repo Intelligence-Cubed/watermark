@@ -1,4 +1,4 @@
-# AI-Generated Content Watermarking and Blockchain-Based Royalty Distribution: A Breakthrough for On-Chain AI Verification
+# Verifiable Watermark Provenance and Recursive Royalties for AI-Generated Content: A Cryptographic and On-Chain Foundation for Creative Economies
 
 ## Abstract
 
