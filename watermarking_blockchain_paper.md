@@ -351,20 +351,25 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  A["Start: verifier receives content"] --> B["Extract watermark evidence / derive content_hash"]
-  B --> C["Query GenerationRecord by record_key"]
+  A["Start: verifier receives content"] --> B["Extract watermark evidence"]
+  B --> C["Query GenerationRecord<br/>by record_key"]
   C -->|not found| NF["Return NOT_FOUND"]
-  C -->|found| D["Resolve ModelRegistry -> attest_pubkey"]
+
+  C -->|found| D["Resolve ModelRegistry<br/>get attest_pubkey"]
   D -->|missing| MU["Return MODEL_UNKNOWN"]
-  D -->|ok| E["Resolve SchemeRegistry -> params_uri + scheme_commitment"]
+
+  D -->|ok| E["Resolve SchemeRegistry<br/>get params_uri + commitment"]
   E -->|missing| SU["Return SCHEME_UNKNOWN"]
-  E -->|ok| F["Fetch params_doc + recompute scheme_commitment"]
-  F -->|mismatch| SM["Return SCHEME_MISMATCH / SCHEME_TAMPERED"]
-  F -->|match| G["Rebuild payload_bytes and verify signature"]
+
+  E -->|ok| F["Fetch params_doc<br/>Recompute commitment"]
+  F -->|mismatch| SM["Return SCHEME_MISMATCH"]
+  F -->|match| G["Rebuild payload_bytes<br/>Verify signature"]
   G -->|fail| IS["Return INVALID_SIG"]
-  G -->|ok| H["Run detector with params_doc"]
+
+  G -->|ok| H["Run detector<br/>with params_doc"]
   H -->|below threshold| DF["Return DETECTION_FAILED"]
-  H -->|verified| V["Return VALID (include evidence bundle)"]
+  H -->|verified| V["Return VALID<br/>(evidence bundle)"]
+
 ```
 
 
