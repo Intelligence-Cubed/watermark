@@ -1014,6 +1014,26 @@ A byte-level `content_hash` is a strong anchor for precise record lookup and rep
 For `NOT_FOUND` or `INCONCLUSIVE/TAMPER_SUSPECT` outcomes, deployments MAY provide dispute/backfill mechanisms (e.g., allowing the model owner or platform to submit additional records or risk annotations). Such mechanisms are deployment policy choices and do not alter core verification semantics, but they can substantially reduce operational friction and misclassification costs.
 
 
+```mermaid
+flowchart LR
+  R3["Derivative (level 3)<br/>record_key3"] -->|parent_hash| R2["Parent (level 2)<br/>record_key2"]
+  R2 -->|parent_hash| R1["Parent (level 1)<br/>record_key1"]
+  R1 -->|parent_hash| R0["Root (level 0)<br/>record_key0"]
+
+  R3 --> P3["Policy3<br/>terms + commitment"]
+  R2 --> P2["Policy2<br/>terms + commitment"]
+  R1 --> P1["Policy1<br/>terms + commitment"]
+  R0 --> P0["Policy0<br/>terms + commitment"]
+
+  P3 --> Settle["Settlement Engine<br/>(depth<=max_depth, cap, missing-parent policy)"]
+  P2 --> Settle
+  P1 --> Settle
+  P0 --> Settle
+
+  Settle --> Pay["Distribute payments<br/>(beneficiaries + shares_bps)"]
+```
+
+
 ## 5. Rights & Recursive Royalty Settlement
 
 This section builds on the verifiable provenance primitives and verification loop defined in Section 4, and specifies an implementable mechanism for rights assertions and recursive royalty settlement. The core principle is that royalty settlement SHOULD NOT rely on unauditable off-chain narratives (e.g., “a platform claims this content belongs to someone”), but instead SHOULD be anchored to verifiable provenance anchors and reproducible dependency relationships (Model Registry, Scheme Registry, Generation Records, and the standardized attestation payload and signature). Under these constraints, the system can support cross-platform automated payouts and auditable, recursive revenue distribution. [20,21,28]
