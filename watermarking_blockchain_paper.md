@@ -910,29 +910,176 @@ A byte-level `content_hash` is a strong anchor for precise record lookup and rep
 For `NOT_FOUND` or `INCONCLUSIVE/TAMPER_SUSPECT` outcomes, deployments MAY provide dispute/backfill mechanisms (e.g., allowing the model owner or platform to submit additional records or risk annotations). Such mechanisms are deployment policy choices and do not alter core verification semantics, but they can substantially reduce operational friction and misclassification costs.
 
 
+## 5. Rights & Recursive Royalty Settlement
 
-## 5. Royalty Distribution Mechanism
+This section builds on the verifiable provenance primitives and verification loop defined in Section 4, and specifies an implementable mechanism for rights assertions and recursive royalty settlement. The core principle is that royalty settlement SHOULD NOT rely on unauditable off-chain narratives (e.g., “a platform claims this content belongs to someone”), but instead SHOULD be anchored to verifiable provenance anchors and reproducible dependency relationships (Model Registry, Scheme Registry, Generation Records, and the standardized attestation payload and signature). Under these constraints, the system can support cross-platform automated payouts and auditable, recursive revenue distribution.
 
-Building on the content provenance foundation, we introduce a **royalty distribution mechanism** that ensures participants in the AI content creation chain are compensated fairly whenever the content generates value. This mechanism has two main parts: on-chain licensing records and automatic revenue splitting via smart contracts.
+### 5.1 Rights & Royalty Policy Attachment
 
-### 5.1 On-chain License Registration
+This subsection defines what a Royalty Policy binds to, who may create/update it, and how to prevent post hoc tampering.
 
-When a piece of content is registered on-chain (as described above), the creator or rightsholder can attach a digital copyright notice or usage license terms to its blockchain record. This could be implemented as part of the content's metadata or via a separate smart contract that maps content IDs to royalty rules. For example, suppose Alice creates image A (ID=A) using her AI model. She might specify on-chain: "If this image (or its derivatives) is used commercially or sold, 5% royalty goes to Alice." Another example: a model developer might declare that any output from Model X carries a baseline royalty of 2% to the model's owner. To facilitate interoperability, these terms should use a standard schema – for instance, a **programmable license template**. The emerging **Story Protocol** has proposed a concept of programmable IP licenses (PIL) that allow creators to encode permissions and royalty percentages for derivatives. Using such a template, Alice could signal that derivative works are allowed as long as a certain revenue share is paid. All such license and royalty data is anchored on-chain alongside the content's provenance. Importantly, the blockchain record will also record the **current owner or royalty recipient address** for the content. This could simply be the wallet address of the original creator by default, but it could be transferable (for example, if Alice sells the rights to Bob, the on-chain owner could be updated to Bob's address). By having each content's rights and royalty info on-chain, we enable smart contracts to later automatically calculate payouts by reading those records.
+#### 5.1.1 Anchor
 
-### 5.2 Triggering Events & Royalty Computation
+A Royalty Policy SHOULD bind to a provenance anchor that uniquely identifies a generation claim. The recommended binding key is:
 
-When a content is monetized – for instance, sold as an NFT, licensed for use in a game, or generating ad revenue on a platform – an event is sent to the blockchain to share the revenue among entitled parties. Take a simple case: content C (ID=C) is a derivative of B (parent) and A (grandparent). Now someone purchases content C's NFT for 100 tokens, or perhaps content C generates 100 tokens of advertising revenue on a platform. We have on-chain rules (from earlier registrations) that say, for example, "A gets 5% of derivative sales" and "B gets 10%". A specialized **royalty smart contract** is deployed which knows how to traverse the content lineage graph and gather applicable royalties. When the sale occurs, the platform or marketplace contract would call the royalty contract, passing in content C's ID and the payment amount (100). The royalty contract looks up C's on-chain record to see if it has any parent content. It finds B as parent and A as grandparent via the links. It then looks up B's royalty rule (say B's creator set 10%) and A's royalty rule (5%). It sums these into a total royalty obligation (in this case 15% of the sale). The contract would then split the 100 tokens: 5 tokens routed to A's registered payout address, 10 tokens to B's address, and the remaining 85 tokens to the seller (C's owner). This forms a **"royalty stack"** – each ancestor in the content's provenance chain contributes a slice according to their defined percentage. If any content in the chain had opted out of royalties (e.g. declared a public domain or 0% royalty license), the contract would note that as 0%. If multiple rules apply (say the model demands 2% and the artist demands 5% on the same piece), those could be aggregated or given priority according to the license agreements (potentially handled via more complex logic or tiered contracts). The entire calculation and transfer of funds happens automatically and near-instantly on-chain once triggered. By programming this into a contract, we remove the need for manual royalty accounting or trust in intermediaries – creators get their share directly according to code.
+- `record_key = (model_ref, content_hash)`
 
+where `model_ref` is resolved via the Model Registry and `content_hash` matches the Generation Record. This binding reduces disputes in edge cases where the same `content_hash` could be claimed by different models or entities; including `model_ref` provides domain separation and keeps “who is authorized to claim” consistent with the signature verification path defined in Section 4.
 
-### 5.3 Royalty Vaults and Withdrawals
+If a deployment uses a global uniqueness domain, a policy MAY bind to `content_hash` alone. In that case, the system MUST explicitly define uniqueness and conflict handling (e.g., first-writer-wins, or append-only versioning that preserves history).
 
-To manage continuous or streaming revenue (for instance, a piece of content earning ad revenue over time), we can use on-chain **royalty vaults** for each content. Essentially, each content or creator can have an escrow pool in the smart contract where their accrued royalties are collected. Every time a royalty payment is triggered for content A, instead of transferring to A's owner immediately (which could be many small micro-transactions), the funds could accumulate in A's "vault". The owner of A (the address on record) can then withdraw from their vault whenever they choose. This approach is useful if there are frequent tiny transactions – it reduces gas fees by not forcing a token transfer every single time, at the cost of the owner having to call a withdraw function occasionally. The vault concept also allows us to introduce **royalty tokens**. Each content could be associated with a fixed supply of tokens that represent fractional entitlement to its royalty stream. For example, when content A is created, the contract could mint 100 "A-royalty tokens", each representing 1% of the royalty earnings from A. Initially, these tokens belong to A's creator. The creator could then sell some of these tokens to investors or collaborators. Whoever holds these tokens can claim the corresponding percentage of the funds in A's royalty vault. This essentially **tokenizes the future royalty flow** of content A, allowing creators to **monetize upfront or share ownership**. For instance, an AI model developer might sell 30% of the royalty tokens for the model's outputs to raise capital; buyers of those tokens would then automatically receive 30% of any royalties generated by that model's outputs (the contract would split the model's vault accordingly). Story Protocol's design alludes to such **royalty-bearing tokens or NFTs** to enable investment in IP rights. Our system can support this by tying the vault payout to token ownership. All the accounting is transparent on-chain: one can see how much revenue has been accumulated and which addresses or token holders have what shares.
+#### 5.1.2 Minimal Data Model
 
-### 5.4 Multi-Party Split Example
+A Royalty Policy, as an auditable on-chain object, SHOULD include at least:
 
-Consider a complex scenario to illustrate the logic. Original image A (by Alice) sets 5% royalty. Image B is created from A by Bob; Bob sets an 8% royalty on B. Then image C is generated by Charlie using B (and indirectly A), and Charlie sets 10% on C (this might apply to further derivatives if any). Now, if image C is sold for 1000 tokens, the smart contract sees: A deserves 5%, B deserves 8% – totaling 13%. It will therefore allocate 50 tokens to A's vault (5%), 80 tokens to B's vault (8%), and the remaining 870 tokens to C's owner (Charlie). Alice and Bob can withdraw their earnings from their respective vaults at leisure. If image C later generates another 500 tokens (say licensing fee), the same percentages apply: 25 to Alice, 40 to Bob, 435 to Charlie. This way, even upstream contributors who are **two steps removed** still benefit from downstream success. The process is fully **automated and transparent** – all transactions are recorded on-chain, so each party can verify they got the correct share. This **multi-round revenue backtracking** ensures that "whoever contributed gets to share the reward," which could solve the current pain point where data providers or intermediate creators get nothing when their work is remixed by AI. Instead, they would receive ongoing royalties, creating a positive incentive loop. From an implementation perspective, one can imagine each piece of content as an NFT that has associated royalty rules and beneficiary addresses. Many NFT marketplaces already support automatic royalty payouts for secondary sales (commonly used to give artists a cut of resales); our system generalizes this across **arbitrarily many "generations"** of content via on-chain provenance. The key difference is the chaining of royalties: NFT standards like ERC-721 typically handle a royalty to the immediate creator, whereas here the contract recursively distributes to **all relevant predecessors** based on their terms. This is what Story Protocol and similar projects are aiming to achieve, and we provide a concrete scheme to do so.
+- `record_key`: recommended `(model_ref, content_hash)`; or `content_hash` if a global domain is used.
+- `rights_owner`: the authority permitted to create/update/revoke the policy.
+- `license_uri`: a human-readable and machine-readable license entrypoint (machine-readable form SHOULD be available for parsing key terms).
+- `policy_commitment`: an integrity commitment over the license terms and structured royalty terms, preventing silent substitution of content behind `license_uri`.
+- `royalty_terms`: structured terms, including at minimum:
+  - `beneficiaries[]`: list of beneficiaries (addresses or resolvable identifiers)
+  - `shares_bps[]`: payout shares (basis points)
+  - `derivative_royalty_bps`: recursive rate applied to derivatives (bps)
+  - `max_depth`: maximum recursion depth (to prevent unbounded traversal / DoS)
+  - `total_royalty_cap_bps` (optional): cap on total royalty extraction
+- `status_flags`: state flags (active / deprecated / revoked, etc.)
+- `created_at` / `updated_at` (optional): for auditing and indexing (or derived from on-chain events/block time)
 
-In summary, by marrying watermark-based provenance with programmable smart contracts, we build an **automated, fair royalty distribution network** that embodies the principle "whoever contributes to an AI-generated work is rewarded." This benefits creators (who are no longer cut out of the value chain) and also investors (who can fund creative endeavors in return for a slice of future earnings via royalty tokens). It introduces new business models: for example, a photographer could allow her images to be used in model training in exchange for on-chain royalties from any model outputs that include her work – turning AI from a threat into a source of passive income. We will next consider the technical and security challenges in implementing this system and how to mitigate them.
+`policy_commitment` SHOULD follow the same “canonicalize then hash” pattern used by the Scheme Registry, so third parties can reproduce it deterministically. For example:
+
+- `policy_bytes = canonical_serialize(license_terms || royalty_terms)`
+- `policy_commitment = H(domain_tag || record_key || policy_bytes)`
+
+This allows verifiers to determine whether the license terms were swapped, without trusting `license_uri`.
+
+#### 5.1.3 Authorization & Update Semantics
+
+To support real-world operations while preserving auditability:
+
+- Only `rights_owner` MAY create, update, or revoke a policy.
+- If a policy is marked `frozen` (optional flag), key fields (at least `policy_commitment` and `royalty_terms`) MUST NOT be modified.
+- If updates are allowed, they SHOULD be append-only and versioned: create a new policy version while keeping prior versions queryable, so historical settlements remain reproducible and disputes remain traceable.
+
+#### 5.1.4 Linking to Attestation Context
+
+To cryptographically bind a generation claim to its rights terms, deployments SHOULD use the `context_hash` field in the attestation payload (Section 4) to commit to policy information, e.g.:
+
+- `context_hash = H(policy_commitment || optional_context…)`
+
+This tightens the evidence chain between Generation Records and rights policies and reduces disputes where the content behind `license_uri` becomes unavailable or is silently replaced.
+
+---
+
+### 5.2 Royalty Computation Model
+
+This subsection turns “recursive royalty distribution” into an implementable set of rules, making traversal paths, aggregation semantics, and boundary behavior explicit.
+
+#### 5.2.1 Lineage Traversal
+
+The system treats Generation Records as the authoritative provenance facts and uses `parent_hash` to represent derivation. Royalty computation starts at the current content’s Generation Record and traverses upstream under the following rules:
+
+- If `parent_hash` is all zeros, there is no parent and recursion terminates.
+- If `parent_hash` is non-zero, attempt to locate the parent’s Generation Record and continue traversal until:
+  - an all-zero parent is reached, or
+  - `max_depth` is reached (from policy or a system default), or
+  - a deployment-defined termination condition is met (e.g., strict mode requires continuous registration).
+
+`max_depth` MUST exist. Without a depth limit, settlement becomes unpredictable and can be exploited for resource-exhaustion attacks.
+
+#### 5.2.2 Per-Node Policy Resolution
+
+For each node in the traversal chain (the current item and each ancestor), the system resolves the Royalty Policy by that node’s `record_key`:
+
+- If an active policy exists, read `royalty_terms` and `derivative_royalty_bps` (when applying derivative royalties).
+- If no policy exists, apply a default policy (Section 5.2.4).
+- If a policy is revoked/deprecated, apply deployment-defined behavior (recommended: revoked does not participate; deprecated participates with a risk annotation).
+
+#### 5.2.3 Aggregation & Priority
+
+When multiple rules apply simultaneously, aggregation and priority MUST be defined to avoid divergent implementations. A recommended model is:
+
+- **Base split**: distribute settlement amount `amount` according to the current item’s policy `beneficiaries/shares_bps`.
+- **Derivative royalty**: for each ancestor, extract `derivative_royalty_bps` from the current `amount`, and distribute it to the ancestor’s beneficiaries as specified by that ancestor’s policy.
+- **Cap**: if `total_royalty_cap_bps` is enabled, the sum of all derivative extractions MUST NOT exceed the cap; any excess MUST be handled deterministically (e.g., proportional scaling across ancestors, or prioritizing nearer ancestors).
+- **Consolidation**: if the same beneficiary receives multiple allocations across layers, the system SHOULD merge them into a single payout or accounting entry to simplify settlement and audit.
+
+The paper SHOULD specify a single default policy for these choices, listing alternative aggregation strategies only as optional extensions.
+
+#### 5.2.4 Missing Parent Behavior (Default)
+
+If an ancestor record cannot be resolved during traversal, the system MUST define a default behavior. Recommended defaults include one of the following (pick one as default to avoid ecosystem divergence):
+
+- **Permissive mode (recommended for open ecosystems)**: stop traversal at the missing parent; settle only over the resolved segment and mark `lineage_incomplete = true`.
+- **Strict mode (recommended for highly regulated licensing)**: refuse settlement or place it in a pending state, returning `PARENT_NOT_FOUND` until backfill or manual review completes.
+
+---
+
+### 5.3 Settlement Trigger & Verification Gate
+
+This subsection addresses a critical operational question: when a marketplace/platform triggers settlement, how does the system ensure the submitted `content_hash` (or record key) corresponds to a verifiable provenance record—preventing arbitrary hashes from triggering unintended payouts?
+
+#### 5.3.1 Settlement Call Inputs
+
+A settlement initiator (e.g., marketplace, distribution platform, payment gateway) SHOULD supply:
+
+- `record_key` (recommended) or `content_hash`
+- `amount` and `currency` (or token identifier)
+- `payer` and `payee_context` (optional; for audit)
+- `settlement_ref`: settlement reference (order ID or hash of payment receipt)
+- `verification_ref` (optional): a pointer to a verification result or proof artifact
+
+#### 5.3.2 Verification Gate
+
+Before executing royalty distribution, the system MUST perform at least a minimal auditable gate on the claim-side and definition-side. Otherwise, forged claims or parameter-substitution attacks can bypass settlement semantics. A recommended minimum gate includes:
+
+1. **Record existence**: the referenced Generation Record can be located. If not found, return `NOT_FOUND` and reject or pend based on deployment policy.
+2. **Scheme definition integrity**: validate `scheme_commitment` via the Scheme Registry. If it fails, return `SCHEME_MISMATCH` and reject.
+3. **Signature validity**: reconstruct payload per Section 4 and verify `signature` using `attest_pubkey` from the Model Registry. If it fails, return `INVALID_SIG` and reject.
+4. **Binding consistency**: validate scheme–model binding. If it fails, return `SCHEME_MODEL_MISMATCH` and reject.
+
+Whether watermark detection is included in the settlement gate MUST be specified explicitly as a two-tier mechanism to avoid unrealistic on-chain computation assumptions:
+
+- **Default (recommended)**: watermark detection is performed off-chain by verifiers; on-chain settlement verifies only commitment/signature (lightweight reproducible checks). Settlement accepts a `verification_ref`, or the platform assumes verifier responsibility subject to audit.
+- **Optional extension**: accept a signed verification report from a trusted verifier set; on-chain verifies the report signature and field integrity. Reports MUST be auditable and contain at least `record_key`, `commitment_verified`, `signature_verified`, and `detection_verified`.
+
+#### 5.3.3 Settlement Outputs & Auditability
+
+Settlement SHOULD emit auditable outputs including:
+
+- `status` (SUCCESS / NOT_FOUND / INVALID_SIG / SCHEME_MISMATCH, etc.)
+- `allocations[]`: amounts per beneficiary with a justification (which policy/layer produced it)
+- `lineage_used`: actual traversal depth and whether lineage was incomplete
+- `settlement_ref` and `record_locator`: pointers enabling third-party reproduction and audit
+
+---
+
+### 5.4 Vaults, Streaming, and Tokenized Shares
+
+This subsection describes practical extensions that reduce micro-payment overhead, improve payout UX, and enable transferrable revenue entitlements.
+
+#### 5.4.1 Vault Aggregation
+
+High-frequency, low-value payouts can be prohibitively expensive as individual on-chain transfers. A Vault layer aggregates:
+
+- One Vault per beneficiary (by `beneficiary`), where settlements accrue balances rather than transferring immediately.
+- Beneficiaries withdraw via `withdraw` on demand, reducing transfer frequency and fees.
+- Vault accounting MUST remain auditable, recording provenance for each credit (at least `settlement_ref` and settlement justification).
+
+#### 5.4.2 Streaming Settlement
+
+For subscriptions or ongoing revenue streams, Vaults MAY support streaming-style accounting:
+
+- Accumulate revenues over fixed time windows and settle periodically.
+- Expose queryable cumulative totals and time ranges.
+- Maintain the same verification gate semantics as Section 5.3 for any credited amounts.
+
+#### 5.4.3 Tokenized Royalty Shares (Optional Extension)
+
+Deployments MAY tokenize claims on Vault proceeds as transferrable “royalty shares” to support financing and secondary market liquidity. To avoid rights confusion:
+
+- The share token represents a claim on Vault proceeds, not governance power over policy modification.
+- If policies are updateable, freezing or versioning MUST preserve auditability of historical settlements and specify how issued shares behave under policy changes (recommended: policy freeze, or append-only versions without retroactive changes).
+
 
 ## 6. Business and Market Impact
 
