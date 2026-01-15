@@ -508,6 +508,20 @@ Given a scheme entry referenced by a generation claim, the verifier SHOULD:
 4. Otherwise, run watermark detection using the detector and parameters specified in the document, then proceed to the subsequent generation-claim verification steps.
 
 
+```mermaid
+flowchart TB
+  P["attestation payload_bytes"] --> DT["domain_tag + schema_version"]
+  P --> R["refs: model_ref + scheme_ref"]
+  P --> A["anchors: content_hash + parent_hash?"]
+  P --> T["timestamp + nonce"]
+  P --> CX["context_hash? (optional)"]
+  P --> H["digest = H(payload_bytes)"]
+  H --> S["signature = Sign(attest_privkey, digest)"]
+  S --> V["Verify(attest_pubkey from ModelRegistry)"]
+
+```
+
+
 #### 4.1.3 Attestation Message Format
 
 ##### Purpose
