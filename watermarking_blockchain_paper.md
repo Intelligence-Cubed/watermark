@@ -461,7 +461,6 @@ To avoid implementation divergence, the proof message should reference the Model
 **Summary:** This section covers model identity, owner, attestation key, versioning, key rotation, and freezing.  
 **Purpose:** Answer “who is authorized to make verifiable claims about generated content, and which public key should be used to verify signatures.”
 
----
 
 #### 4.1.2 Watermark Scheme Registry (WatermarkSchemeRegistry / WatermarkSchemeAccount)
 
@@ -531,7 +530,6 @@ Given a scheme entry referenced by a generation claim, the verifier SHOULD:
 3. If the recomputed commitment differs from `scheme_commitment`, conclude the definition is inconsistent (tampered/replaced) and reject.
 4. Otherwise, run watermark detection using the detector and parameters specified in the document, then proceed to the subsequent generation-claim verification steps.
 
----
 
 #### 4.1.3 Attestation Message Format
 
@@ -655,7 +653,6 @@ To avoid inconsistent interpretation of encoding details, we recommend publishin
 
 With test vectors, EVM teams, Solana teams, and third-party clients can align on identical `payload_bytes` and `digest` for the same inputs, ensuring consistent verification across ecosystems.
 
----
 
 #### 4.1.4 Generation Record
 
@@ -755,7 +752,6 @@ These are protocol semantics, not chain features; they can map to revert reasons
 - **Anti-abuse**: introduce fees/deposits/rate limits at registration to deter spam; this is a deployment policy and does not change core protocol semantics.
 - **Extensibility**: reserve extension fields or attach off-chain extension data via `context_hash` to avoid frequent upgrades of the core schema.
 
----
 
 #### 4.1.5 End-to-End Workflow (End-to-End Flow)
 
@@ -980,7 +976,7 @@ For platform integration and auditability, verifiers SHOULD return a structured 
 
 The result SHOULD be sufficient for third parties to reproduce key checks using `refs` and `anchors` without relying on private databases, enabling independent audit of the verifier’s conclusion.
 
----
+
 
 ### 4.3 Authenticity, Tamper Detection, and Failure Modes
 
@@ -1099,7 +1095,7 @@ To cryptographically bind a generation claim to its rights terms, deployments SH
 
 This tightens the evidence chain between Generation Records and rights policies and reduces disputes where the content behind `license_uri` becomes unavailable or is silently replaced.
 
----
+
 
 ### 5.2 Royalty Computation Model
 
@@ -1143,7 +1139,6 @@ If an ancestor record cannot be resolved during traversal, the system MUST defin
 - **Permissive mode (recommended for open ecosystems)**: stop traversal at the missing parent; settle only over the resolved segment and mark `lineage_incomplete = true`.
 - **Strict mode (recommended for highly regulated licensing)**: refuse settlement or place it in a pending state, returning `PARENT_NOT_FOUND` until backfill or manual review completes.
 
----
 
 ### 5.3 Settlement Trigger & Verification Gate
 
@@ -1182,7 +1177,7 @@ Settlement SHOULD emit auditable outputs including:
 - `lineage_used`: actual traversal depth and whether lineage was incomplete
 - `settlement_ref` and `record_locator`: pointers enabling third-party reproduction and audit
 
----
+
 
 ### 5.4 Vaults, Streaming, and Tokenized Shares
 
