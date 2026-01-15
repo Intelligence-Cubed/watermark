@@ -322,6 +322,35 @@ flowchart LR
   RP -->|binds to| GR
 ```
 
+```mermaid
+sequenceDiagram
+  participant Gen as Generator / Inference Service
+  participant Chain as Chain (Registries + Records)
+  participant Ver as Verifier / Platform / Auditor
+  participant Store as Off-chain Storage (params/content)
+
+  Gen->>Chain: register_model(owner, attest_pubkey, model_version, metadata_uri)
+  Gen->>Chain: register_scheme(model_ref, scheme_id, params_uri, scheme_commitment)
+
+  Gen->>Gen: embed watermark into content
+  Gen->>Gen: compute content_hash
+  Gen->>Gen: build canonical payload_bytes
+  Gen->>Gen: sign(payload_digest) with attest_privkey
+  Gen->>Chain: submit GenerationRecord(record_key, scheme_ref, content_hash, ..., signature)
+
+  Ver->>Ver: extract watermark evidence from content
+  Ver->>Chain: query GenerationRecord by (model_ref, content_hash)
+  Ver->>Chain: resolve ModelRegistry (attest_pubkey)
+  Ver->>Chain: resolve SchemeRegistry (params_uri, scheme_commitment)
+  Ver->>Store: fetch params_doc from params_uri
+  Ver->>Ver: recompute scheme_commitment and compare
+  Ver->>Ver: rebuild payload_bytes and verify signature
+  Ver->>Ver: run detector using params_doc
+  Ver->>Ver: output status + evidence bundle
+```
+
+
+
 
 
 ### 4.1 Provenance Registration & Watermark Embedding
