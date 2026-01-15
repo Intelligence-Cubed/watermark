@@ -30,10 +30,6 @@ This paper proposes a multi-chain–deployable framework for **verifiable proven
 
 ## 2. Technical Background
 
-### 2.1 Digital Watermark Concept and Characteristics
-
-## 2. Technical Background
-
 This section reviews the key background required by our framework. On one hand, we summarize multimodal watermarking and its use in AI-generated content. On the other hand, we introduce the cryptographic and system primitives needed to make provenance claims *reproducible* and *auditable* (commitments, canonical serialization, signatures with domain separation, and on-chain registry patterns). Together, these foundations explain why “the mere presence of a watermark” is insufficient for cross-platform attribution, and why registries, commitments, and canonical message formats are necessary to avoid implementation divergence and post hoc tampering.
 
 ### 2.1 Digital Watermarking: Concept and Core Properties
